@@ -50,10 +50,12 @@ const globeFragment = /* glsl */ `
   void main() {
     float facing = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
     float rim = pow(1.0 - facing, 2.6);
-    float core = pow(facing, 1.6);
-    vec3 glow = uWarm * uGlow * (0.42 + 1.05 * core);
-    vec3 col = glow + uRim * rim * (0.55 - 0.35 * uGlow);
-    float alpha = clamp(0.05 + rim * 0.55 + uGlow * (0.55 + 0.35 * core), 0.0, 1.0);
+    float core = pow(facing, 2.2);
+    // opal glass: warm body, whiter towards the bulb, soft fall-off to the rim
+    vec3 body = mix(uWarm, vec3(1.0, 0.94, 0.84), core * 0.55);
+    vec3 glow = body * uGlow * (0.30 + 0.85 * core);
+    vec3 col = glow + uRim * rim * (0.55 - 0.4 * uGlow);
+    float alpha = clamp(0.04 + rim * (0.5 + 0.25 * uGlow) + uGlow * (0.18 + 0.32 * core), 0.0, 0.92);
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -134,7 +136,8 @@ function Pendant({ view, lowPower, reducedMotion, onToggle, interactive }: Omit<
     }
     if (halo.current) {
       const m = halo.current.material as THREE.SpriteMaterial;
-      m.opacity = g * (unverified ? 0.35 : 0.62);
+      // bloom already spreads light on capable devices; keep the sprite subtle there
+      m.opacity = g * (unverified ? 0.35 : 0.62) * (lowPower ? 1 : 0.45);
       const s = 2.6 + g * 1.6;
       halo.current.scale.set(s, s, 1);
     }
@@ -330,7 +333,7 @@ export default function LampScene(props: LampSceneProps) {
       <CameraRig parallax={!lowPower && !reducedMotion} />
       {bloom ? (
         <EffectComposer multisampling={0}>
-          <Bloom mipmapBlur intensity={0.75} luminanceThreshold={0.82} luminanceSmoothing={0.2} />
+          <Bloom mipmapBlur intensity={0.32} radius={0.55} luminanceThreshold={0.92} luminanceSmoothing={0.12} />
           <Vignette eskil={false} offset={0.25} darkness={0.7} />
         </EffectComposer>
       ) : (
