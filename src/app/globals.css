@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   SE7ENX design tokens — dark graphite, cyan/blue accents, restrained glow.
+   ------------------------------------------------------------------------- */
+@theme {
+  --color-ink-950: #050608;
+  --color-ink-900: #080a0d;
+  --color-ink-850: #0b0e12;
+  --color-ink-800: #0f1318;
+  --color-ink-750: #131820;
+  --color-ink-700: #18202a;
+  --color-ink-600: #222c38;
+  --color-ink-500: #2f3b4a;
+  --color-ink-400: #556274;
+  --color-ink-300: #8593a6;
+  --color-ink-200: #b4bfcd;
+  --color-ink-100: #dde4ec;
+  --color-ink-50: #f1f5f9;
+
+  --color-cyan-glow: #38d9f5;
+  --color-accent: #38d9f5;
+  --color-accent-strong: #0ec5e8;
+  --color-accent-blue: #4f8cff;
+  --color-ok: #3ddc97;
+  --color-warn: #f5b84b;
+  --color-danger: #ff6b6b;
+  --color-sim: #b49cff;
+  --color-warm: #ffcf99;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --shadow-glow: 0 0 0 1px rgb(56 217 245 / 0.18), 0 8px 40px -12px rgb(56 217 245 / 0.35);
+  --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 20px 60px -30px rgb(0 0 0 / 0.8);
+
+  --animate-pulse-ring: pulse-ring 1.4s ease-in-out infinite;
+  --animate-fade-in: fade-in 220ms ease-out both;
+  --animate-flash: flash 900ms ease-out both;
+
+  @keyframes pulse-ring {
+    0%, 100% { opacity: 0.35; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.04); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes flash {
+    0% { opacity: 0.9; }
+    100% { opacity: 0; }
+  }
+}
+
+:root {
+  color-scheme: dark;
+  --bg-grad:
+    radial-gradient(1200px 600px at 70% -10%, rgb(79 140 255 / 0.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgb(56 217 245 / 0.07), transparent 60%),
+    linear-gradient(180deg, #07090c 0%, #050608 100%);
+}
+
+html,
+body {
+  background: #050608;
+}
+
+body {
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Visible, consistent keyboard focus */
+:where(a, button, input, select, textarea, summary, [tabindex], [role="tab"], [role="switch"], [role="radio"], [role="slider"]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+::selection {
+  background: rgb(56 217 245 / 0.3);
+}
+
+/* Subtle technical grid used on the lamp stage */
+.bg-grid {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.sim-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(180 156 255 / 0.12) 0 8px,
+    transparent 8px 16px
+  );
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
