@@ -159,7 +159,9 @@ export async function enableVoice(): Promise<void> {
   } else {
     s.set({ enabled: true });
   }
-  void refreshOnDevice();
+  // NOTE: the experimental on-device availability probe is NOT called here; it only
+  // runs when the user explicitly opts into on-device recognition (it can crash
+  // browsers without an on-device speech service).
 }
 
 export function disableVoice(): void {

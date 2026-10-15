@@ -15,7 +15,7 @@ export function ControlPanel() {
   const light = useAppStore((s) => s.light);
   const requestCommand = useAppStore((s) => s.requestCommand);
   const refreshState = useAppStore((s) => s.refreshState);
-  const useSimulation = useAppStore((s) => s.useSimulation);
+  const switchToSimulation = useAppStore((s) => s.switchToSimulation);
   const openWizard = useUi((s) => s.openWizard);
   const setTab = useUi((s) => s.setTab);
   const camera = useGestureStore((s) => s.cameraStatus);
@@ -77,7 +77,7 @@ export function ControlPanel() {
                   variant="ghost"
                   onClick={async () => {
                     await disconnectActiveBackend();
-                    await useSimulation();
+                    await switchToSimulation();
                   }}
                 >
                   <Unplug className="h-4 w-4" aria-hidden />

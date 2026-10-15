@@ -9,7 +9,7 @@ import { useSettings } from "@/lib/state/settings";
 import { useAppStore } from "@/lib/state/store";
 import { cn } from "@/lib/utils";
 import { EXAMPLE_PHRASES, languageFamily, VOICE_LANGUAGES } from "@/lib/voice/commands";
-import { installOnDevice } from "@/lib/voice/recognizer";
+import { installOnDevice, supportsOnDeviceRecognition } from "@/lib/voice/recognizer";
 import {
   disableVoice,
   enableVoice,
@@ -39,9 +39,10 @@ export function VoicePanel() {
   const family = languageFamily(voice.lang);
   const langOpt = VOICE_LANGUAGES.find((l) => l.tag === voice.lang) ?? VOICE_LANGUAGES[0]!;
 
+  // Probe on-device availability only after the user opted in.
   useEffect(() => {
-    if (v.enabled) void refreshOnDevice();
-  }, [voice.lang, v.enabled]);
+    if (v.enabled && voice.preferOnDevice) void refreshOnDevice();
+  }, [voice.lang, v.enabled, voice.preferOnDevice]);
 
   if (v.supported === false) {
     return (
@@ -158,25 +159,28 @@ export function VoicePanel() {
             </select>
           </div>
 
-          {v.enabled && v.onDevice && v.onDevice !== "unsupported" ? (
+          {v.enabled && supportsOnDeviceRecognition() ? (
             <div className="space-y-2">
               <Switch
                 id="on-device"
                 checked={voice.preferOnDevice}
                 onCheckedChange={(c) => setVoice({ preferOnDevice: c })}
-                disabled={v.onDevice !== "available"}
-                label="Prefer on-device recognition"
+                label="Prefer on-device recognition (experimental)"
                 description={
-                  v.onDevice === "available"
-                    ? "Audio stays on this device (Chrome on-device speech)."
-                    : v.onDevice === "downloadable"
-                      ? "A language pack must be downloaded first."
-                      : v.onDevice === "downloading"
-                        ? "Language pack downloading…"
-                        : "Not available for this language."
+                  !voice.preferOnDevice
+                    ? "Keeps audio on this device when your browser has an offline language pack (Chrome 139+)."
+                    : v.onDevice === null
+                      ? "Checking availability…"
+                      : v.onDevice === "available"
+                        ? "On-device recognition is used — audio stays on this device."
+                        : v.onDevice === "downloadable"
+                          ? "A language pack must be downloaded first. Until then the browser's online service is used."
+                          : v.onDevice === "downloading"
+                            ? "Language pack downloading…"
+                            : "Not available for this language — the browser's online service is used."
                 }
               />
-              {v.onDevice === "downloadable" ? (
+              {voice.preferOnDevice && v.onDevice === "downloadable" ? (
                 <Button
                   size="sm"
                   variant="outline"

@@ -80,6 +80,7 @@ function Pendant({ view, lowPower, reducedMotion, onToggle, interactive }: Omit<
   const group = useRef<THREE.Group>(null);
   const glass = useRef<THREE.MeshPhysicalMaterial>(null);
   const bulbGlass = useRef<THREE.MeshStandardMaterial>(null);
+  const globeMat = useRef<THREE.ShaderMaterial>(null);
   const filament = useRef<THREE.MeshBasicMaterial>(null);
   const light = useRef<THREE.PointLight>(null);
   const halo = useRef<THREE.Sprite>(null);
@@ -120,7 +121,8 @@ function Pendant({ view, lowPower, reducedMotion, onToggle, interactive }: Omit<
     const unverified = view.certainty === "assumed" || view.certainty === "observed" || view.certainty === "stale";
 
     if (light.current) light.current.intensity = g * (lowPower ? 18 : 26);
-    globeUniforms.uGlow.value = g * (unverified ? 0.75 : 1);
+    const glowUniform = globeMat.current?.uniforms.uGlow;
+    if (glowUniform) glowUniform.value = g * (unverified ? 0.75 : 1);
     if (filament.current) filament.current.color.setRGB(0.12 + g * 4.2, 0.07 + g * 2.6, 0.04 + g * 1.1);
     if (bulbGlass.current) {
       bulbGlass.current.emissive.copy(WARM_HOT);
@@ -212,6 +214,7 @@ function Pendant({ view, lowPower, reducedMotion, onToggle, interactive }: Omit<
         <mesh position={[0, -0.02, 0]} renderOrder={2}>
           <sphereGeometry args={[0.545, lowPower ? 40 : 72, lowPower ? 28 : 48]} />
           <shaderMaterial
+            ref={globeMat}
             vertexShader={globeVertex}
             fragmentShader={globeFragment}
             uniforms={globeUniforms}
@@ -273,17 +276,20 @@ function Floor() {
  * screens, with subtle pointer parallax on capable desktop devices.
  */
 function CameraRig({ parallax }: { parallax: boolean }) {
-  const { camera, pointer, size, invalidate } = useThree();
+  const size = useThree((s) => s.size);
+  const get = useThree((s) => s.get);
   const aspect = size.width / Math.max(1, size.height);
   const lookY = aspect < 0.85 ? 0.82 : aspect < 1.15 ? 0.7 : 0.6;
   const distance = aspect < 0.85 ? 5.4 : 4.7;
   useEffect(() => {
+    const { camera, invalidate } = get();
     camera.position.set(0, lookY + 0.05, distance);
     camera.lookAt(0, lookY, 0);
     invalidate();
-  }, [camera, lookY, distance, invalidate]);
-  useFrame((_, delta) => {
+  }, [get, lookY, distance]);
+  useFrame((state, delta) => {
     if (!parallax) return;
+    const { camera, pointer } = state;
     camera.position.x = THREE.MathUtils.damp(camera.position.x, pointer.x * 0.3, 2, delta);
     camera.position.y = THREE.MathUtils.damp(camera.position.y, lookY + 0.05 + pointer.y * 0.12, 2, delta);
     camera.lookAt(0, lookY, 0);

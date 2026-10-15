@@ -16,7 +16,7 @@ interface AppStore {
   toggle: (source: CommandSource) => Promise<DispatchResult>;
   setPaused: (paused: boolean) => void;
   activateAdapter: (adapter: LightAdapter, opts: { target: LightTarget | null }) => Promise<void>;
-  useSimulation: () => Promise<void>;
+  switchToSimulation: () => Promise<void>;
   refreshState: () => Promise<void>;
   note: (title: string, detail?: string, tone?: "neutral" | "info" | "success" | "warning" | "danger") => void;
 }
@@ -70,7 +70,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       await adapter.start?.();
     },
 
-    useSimulation: async () => {
+    switchToSimulation: async () => {
       if (get().adapter === simulation) return;
       await get().activateAdapter(simulation, { target: null });
     },

@@ -97,7 +97,7 @@ export function ConnectionWizard() {
   const setPrefs = useSettings((s) => s.setConnection);
   const light = useAppStore((s) => s.light);
   const activateAdapter = useAppStore((s) => s.activateAdapter);
-  const useSimulation = useAppStore((s) => s.useSimulation);
+  const switchToSimulation = useAppStore((s) => s.switchToSimulation);
   const requestCommand = useAppStore((s) => s.requestCommand);
 
   const [step, setStep] = useState<StepId>("mode");
@@ -448,7 +448,7 @@ export function ConnectionWizard() {
   const next = async () => {
     if (step === "mode") {
       if (backend === "simulation") {
-        await useSimulation();
+        await switchToSimulation();
         closeWizard();
         setStep("mode");
         return;
