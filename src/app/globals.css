@@ -12,7 +12,7 @@
   --color-ink-700: #18202a;
   --color-ink-600: #222c38;
   --color-ink-500: #2f3b4a;
-  --color-ink-400: #556274;
+  --color-ink-400: #75849a; /* ≥ 4.5:1 on panel backgrounds (WCAG AA) */
   --color-ink-300: #8593a6;
   --color-ink-200: #b4bfcd;
   --color-ink-100: #dde4ec;

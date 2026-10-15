@@ -1,0 +1,34 @@
+# systemd unit for the SE7ENX Bridge (e.g. on a Raspberry Pi next to the KNX IP interface).
+#   sudo useradd --system --home /opt/se7enx-bridge se7enx
+#   sudo cp se7enx-bridge.service /etc/systemd/system/ && sudo systemctl enable --now se7enx-bridge
+#   journalctl -u se7enx-bridge -f      # shows the pairing code
+[Unit]
+Description=SE7ENX Bridge (KNXnet/IP gateway for the SE7ENX Smart Light web app)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=se7enx
+Group=se7enx
+EnvironmentFile=/etc/se7enx-bridge.env
+ExecStart=/opt/se7enx-bridge/.venv/bin/se7enx-bridge
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

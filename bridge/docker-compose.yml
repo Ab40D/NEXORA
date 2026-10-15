@@ -1,0 +1,18 @@
+services:
+  se7enx-bridge:
+    build: .
+    image: se7enx-bridge:1.0.0
+    restart: unless-stopped
+    # Host networking (Linux) gives xknx direct access to the LAN for UDP tunnelling,
+    # routing multicast (224.0.23.12) and interface discovery. On Docker Desktop
+    # (macOS/Windows) host networking is limited: use TCP tunnelling or
+    # SE7ENX_KNX_ROUTE_BACK=true with UDP tunnelling and publish the port instead.
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./certs:/certs:ro        # optional TLS certificate/key
+      # - ./secrets:/secrets:ro  # optional KNX Secure keyring
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]

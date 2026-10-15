@@ -62,7 +62,7 @@ export function HistoryPanel() {
                     </time>
                   </div>
                   {h.detail ? <p className="mt-0.5 break-words text-xs leading-relaxed text-ink-300">{h.detail}</p> : null}
-                  <p className="mt-0.5 text-[10px] uppercase tracking-wider text-ink-500">
+                  <p className="mt-0.5 text-[10px] uppercase tracking-wider text-ink-400">
                     {h.mode === "simulation" ? "simulation" : h.mode === "bridge" ? "knx · bridge" : "knx · home assistant"}
                   </p>
                 </div>
