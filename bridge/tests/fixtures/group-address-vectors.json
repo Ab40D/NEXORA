@@ -1,0 +1,183 @@
+{
+  "_comment": "Shared KNX group address test vectors. Used by the web app (Vitest) and the bridge (pytest). Keep bridge/tests/fixtures/group-address-vectors.json identical.",
+  "valid": [
+    {
+      "input": "0/0/1",
+      "raw": 1,
+      "canonical": "0/0/1",
+      "style": "three-level"
+    },
+    {
+      "input": "1/2/3",
+      "raw": 2563,
+      "canonical": "1/2/3",
+      "style": "three-level"
+    },
+    {
+      "input": "31/7/255",
+      "raw": 65535,
+      "canonical": "31/7/255",
+      "style": "three-level"
+    },
+    {
+      "input": " 5/1/20 ",
+      "raw": 10516,
+      "canonical": "5/1/20",
+      "style": "three-level"
+    },
+    {
+      "input": "01/02/003",
+      "raw": 2563,
+      "canonical": "1/2/3",
+      "style": "three-level"
+    },
+    {
+      "input": "1/515",
+      "raw": 2563,
+      "canonical": "1/2/3",
+      "style": "two-level"
+    },
+    {
+      "input": "31/2047",
+      "raw": 65535,
+      "canonical": "31/7/255",
+      "style": "two-level"
+    },
+    {
+      "input": "0/1",
+      "raw": 1,
+      "canonical": "0/0/1",
+      "style": "two-level"
+    },
+    {
+      "input": "2563",
+      "raw": 2563,
+      "canonical": "1/2/3",
+      "style": "free"
+    },
+    {
+      "input": "65535",
+      "raw": 65535,
+      "canonical": "31/7/255",
+      "style": "free"
+    },
+    {
+      "input": "1",
+      "raw": 1,
+      "canonical": "0/0/1",
+      "style": "free"
+    },
+    {
+      "input": "1/2/3\n",
+      "raw": 2563,
+      "canonical": "1/2/3",
+      "style": "three-level"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "",
+      "code": "empty"
+    },
+    {
+      "input": "   ",
+      "code": "empty"
+    },
+    {
+      "input": "0/0/0",
+      "code": "reserved"
+    },
+    {
+      "input": "0/0",
+      "code": "reserved"
+    },
+    {
+      "input": "0",
+      "code": "reserved"
+    },
+    {
+      "input": "32/0/1",
+      "code": "range"
+    },
+    {
+      "input": "1/8/1",
+      "code": "range"
+    },
+    {
+      "input": "1/2/256",
+      "code": "range"
+    },
+    {
+      "input": "1/2048",
+      "code": "range"
+    },
+    {
+      "input": "65536",
+      "code": "range"
+    },
+    {
+      "input": "1/2/3/4",
+      "code": "format"
+    },
+    {
+      "input": "1.2.3",
+      "code": "format"
+    },
+    {
+      "input": "1-2-3",
+      "code": "format"
+    },
+    {
+      "input": "a/b/c",
+      "code": "format"
+    },
+    {
+      "input": "1//3",
+      "code": "format"
+    },
+    {
+      "input": "/1/2",
+      "code": "format"
+    },
+    {
+      "input": "1/2/",
+      "code": "format"
+    },
+    {
+      "input": "-1/2/3",
+      "code": "format"
+    },
+    {
+      "input": "+1/2/3",
+      "code": "format"
+    },
+    {
+      "input": "1 /2/3",
+      "code": "format"
+    },
+    {
+      "input": "i-internal",
+      "code": "format"
+    },
+    {
+      "input": "1/2/3; rm -rf /",
+      "code": "format"
+    },
+    {
+      "input": "0x0A01",
+      "code": "format"
+    },
+    {
+      "input": "1e3",
+      "code": "format"
+    },
+    {
+      "input": "123/4/5",
+      "code": "format"
+    },
+    {
+      "input": "999999",
+      "code": "format"
+    }
+  ]
+}

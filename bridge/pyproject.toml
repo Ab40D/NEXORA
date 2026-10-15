@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "se7enx-bridge"
+version = "1.0.0"
+description = "SE7ENX Bridge — authenticated LAN bridge between the SE7ENX Smart Light web app and a KNXnet/IP interface or router (xknx)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "xknx>=4.0,<5",
+  "fastapi>=0.140,<1",
+  "uvicorn[standard]>=0.50",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9", "httpx2>=2.13", "ruff>=0.17"]
+
+[project.scripts]
+se7enx-bridge = "se7enx_bridge.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["se7enx_bridge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning:websockets.*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
+ignore = ["S101", "S104", "RUF012", "E501", "SIM108"]  # long strings are left to the formatter
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B011"]
+"tools/*" = ["S"]
