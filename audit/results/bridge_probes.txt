@@ -1,0 +1,48 @@
+INFO:se7enx.audit:client x
+FORGED se7enx.audit: command ga=0/0/9 value=on client=admin outcome=bus_confir configured light primary: switch=0/0/1 status=0/0/2 dpt=1.001
+INFO:se7enx.audit:client auditor configured light primary: switch=0/0/1 status=0/0/2 dpt=1.001
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=on source=manual client=auditor outcome=bus_confirmed
+INFO:se7enx.audit:client auditor disconnected the KNX link
+INFO:se7enx.audit:client auditor configured light primary: switch=0/0/1 status=0/0/2 dpt=1.001
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=on source=manual client=auditor outcome=bus_confirmed
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=off source=manual client=auditor outcome=bus_confirmed
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=on source=manual client=auditor outcome=bus_confirmed
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=off source=manual client=auditor outcome=bus_confirmed
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=on source=manual client=auditor outcome=bus_confirmed
+INFO:se7enx.audit:command light=primary ga=0/0/1 value=off source=manual client=auditor outcome=bus_confirmed
+[P01] PASS: unauthenticated sensitive endpoints → [401, 401, 401, 401]
+[P02] PASS: pairing from foreign Origin → 403 ORIGIN_NOT_ALLOWED
+[P03] PASS: session B reading session A's light registration → 404
+[P04] CONFIRMED: session B can register and control the SAME allowlisted group address (no per-user target permissions) → 200
+[P05] CONFIRMED: any paired session can disconnect the shared KNX link (B disconnect → 200; A's next command → 409 KNX_NOT_CONNECTED)
+[P06] CONFIRMED: new pairing silently evicts the oldest session when max_sessions is reached → first token now 401
+[P07] CONFIRMED: newline in clientName forges a separate audit log line (2 lines written for 1 event)
+[P08] CONFIRMED: refresh read got no answer (2.5s) but the bridge returned the cached value as current: value=on via=status_address at=2026-10-15T23:04:08.661Z (device is now OFF); response has no staleness flag
+[P09] CONFIRMED: value cache survives KNX disconnect/reconnect → value=on at=2026-10-15T23:04:08.661Z
+[P10] INFO: one session toggled the load 6× in 0.0s before the limit (statuses [200, 200, 200, 200, 200, 200, 429, 429]); defaults allow 6/10 s per session and 20/10 s per bridge
+[P11] PASS: 20 kB body → 413
+[P12] CONFIRMED: with SE7ENX_TRUST_PROXY=true, spoofed X-Forwarded-For from a direct client bypasses the per-client pairing limit (12 attempts, 0 rate-limited)
+[P13] CONFIRMED: after 20 global failures pairing is locked for everyone, even with the correct code → (429, 'PAIRING_LOCKED') (attempt codes: ['PAIRING_FAILED', 'PAIRING_LOCKED'])
+[P14] PASS: control: with trust_proxy off the header is ignored and the per-client limit applies (['PAIRING_FAILED', 'PAIRING_FAILED', 'PAIRING_FAILED', 'PAIRING_FAILED', 'PAIRING_FAILED', 'RATE_LIMITED', 'RATE_LIMITED'])
+[P15] CONFIRMED: default client gateway CIDRs include link-local 169.254.0.0/16 (cloud metadata address allowed: True); override itself is disabled by default
+[P16] CONFIRMED: trivially guessable fixed pairing code accepted by config validation (pairing_code=********)
+[P17] PASS: pip/systemd defaults: loopback bind, empty GA allowlist (deny all), gateway override off
+
+SUMMARY
+  P01 PASS
+  P02 PASS
+  P03 PASS
+  P04 CONFIRMED
+  P05 CONFIRMED
+  P06 CONFIRMED
+  P07 CONFIRMED
+  P08 CONFIRMED
+  P09 CONFIRMED
+  P10 INFO
+  P11 PASS
+  P12 CONFIRMED
+  P13 CONFIRMED
+  P14 PASS
+  P15 CONFIRMED
+  P16 CONFIRMED
+  P17 PASS

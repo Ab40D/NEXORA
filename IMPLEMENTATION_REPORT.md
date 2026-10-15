@@ -42,8 +42,11 @@ The repository was empty at the start; everything here is new (7 commits on `mai
 6. **Events over fetch-based SSE**, not WebSocket/EventSource: allows the `Authorization`
    header and Chrome's Local Network Access mixed-content exemption (`targetAddressSpace`) for
    `http://` LAN/loopback bridges; WebSockets get no such exemption.
-7. **Gestures fully local**: self-hosted MediaPipe WASM + checksum-verified model; debounced
-   engine (hysteresis, EMA, dwell, cooldown, re-arm, confidence gating, frame-gap reset).
+7. **Gesture inference on the device**: self-hosted MediaPipe WASM + checksum-verified model; debounced
+   engine (hysteresis, EMA, dwell, cooldown, re-arm, confidence gating, frame-gap reset). Frames and
+   landmarks never leave the browser. *Correction (audit 2026-10-15):* this was originally called
+   "fully local", but the MediaPipe Tasks Vision library sends usage telemetry (no images) to Google.
+   See [SECURITY_AUDIT.md](SECURITY_AUDIT.md), finding SE7-03.
 8. **Voice = exact allowlist** (EN/FR/AR incl. Algerian Darija) after normalization; negations
    and long utterances rejected; push-to-talk or explicit 60 s session; never continuous by default.
 
@@ -127,6 +130,9 @@ tracking ran headless on Chromium's fake camera and correctly reported "No hand 
 
 ### Hardware validation checklist (for the installer)
 
+An extended plan with expected results (18 hardware tests, 8 Home Assistant tests, browser matrix)
+is in [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) §3–§5.
+
 1. `se7enx-bridge scan` finds the interface; `check-config` shows the intended settings.
 2. Bridge log shows `KNX connected` with the interface name and tunnel address.
 3. Wizard connectivity test: all checks green; "Read current state" returns the actuator state.
@@ -137,9 +143,29 @@ tracking ran headless on Chromium's fake camera and correctly reported "No hand 
 7. Stop the bridge → UI shows `RECONNECTING`; restart → UI asks to pair again.
 8. Gestures and voice on the target devices/browsers; emergency stop blocks both.
 
-## 8. Live preview in this workspace
+## 8. Demo previews
 
-The preview runs the production build with a **development-only** same-origin rewrite
-(`/demo-bridge` → bridge on `127.0.0.1:8787`) because the preview proxy cannot expose a second
-host. That bridge talks to the **fake** interface (`SE7ENX FAKE KNX (TEST ONLY)`) — no real
-hardware. Pairing code: `KNX7-DEMO`; group address `0/0/1`, status address `0/0/2`.
+Temporary previews of this project used the **demo-only** same-origin rewrite
+`SE7ENX_DEV_BRIDGE_REWRITE` (`/demo-bridge` → a bridge dev stack talking to the **fake** interface
+`SE7ENX FAKE KNX (TEST ONLY)`, no real hardware). Previews are not part of the deliverable, and their
+demo pairing codes are not valid anywhere. Never set this variable for a production deployment
+(audit finding SE7-10).
+
+## 9. Audit addendum (2026-10-15)
+
+A separate evidence-based technical and security audit was performed after delivery:
+[SECURITY_AUDIT.md](SECURITY_AUDIT.md). Application code was **not** changed by the audit; it
+added documentation ([TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md),
+[USER_GUIDE.md](USER_GUIDE.md), [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md), extended
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)), corrected inaccurate privacy and security statements
+in this report, the README and [docs/SECURITY.md](docs/SECURITY.md), and added reproducible
+probes under [`audit/`](audit/README.md).
+
+* **Re-verification:** lint 0 errors, typecheck 0 errors, Vitest 185/185, pytest 98/98, ruff
+  clean, Playwright 24 passed / 1 skipped (intentional), production build OK.
+* **Top findings:** HA tokens with full account rights in `sessionStorage` (SE7-01, High); stale
+  cached state shown as "Device confirmed" (SE7-02, High); MediaPipe telemetry to Google (SE7-03);
+  no bridge roles or admin revocation (SE7-04); plain-HTTP bridge default (SE7-05); client-only
+  emergency stop (SE7-07).
+* **Readiness:** local demo ready; controlled hardware test and public simulation demo ready
+  with restrictions; real users with Home Assistant and production use **not ready**.

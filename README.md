@@ -10,12 +10,19 @@ reflects the state your installation actually reports.
 | --- | --- | --- |
 | ![Live KNX](docs/screenshots/live-knx-confirmed.jpg) | ![Wizard test](docs/screenshots/wizard-connectivity-test.jpg) | ![Mobile](docs/screenshots/simulation-mobile.jpg) |
 
+> **Audit status (2026-10-15).** A [technical & security audit](SECURITY_AUDIT.md) found the
+> project **ready for local demos, controlled tests on your own hardware (with restrictions) and a
+> public simulation-only demo (with restrictions)**. It is **not ready** for real users connecting
+> their own Home Assistant or for production with physical devices. The KNX path has **not** been
+> verified on real hardware, and the Home Assistant path only against a mock. See the
+> [deployment checklist](DEPLOYMENT_CHECKLIST.md).
+
 ## Highlights
 
 * **Instant simulation** — opens with an interactive 3D lamp; nothing to install. Simulation is labelled everywhere and never touches hardware.
 * **Real KNX** via the **SE7ENX Bridge** (Python + xknx, runs on your LAN) or via your existing **Home Assistant** KNX integration.
 * **Honest state** — *simulated*, *requested* and *confirmed* state are kept separate. A command is "confirmed" only when the KNX interface returned a positive `L_Data.con`; the lamp shows the device as ON/OFF only when the actuator's **status address** (or a read response) says so — otherwise it says `UNVERIFIED`.
-* **Gestures** (MediaPipe, 100 % on-device): raise an open hand above the ON line → ON, lower it below the OFF line → OFF; smoothing, dwell, cooldown, re-arm, confidence gating, calibration.
+* **Gestures** (MediaPipe; video frames are analysed on your device and never uploaded, but the MediaPipe library sends usage telemetry to Google, see [Privacy](#privacy)): raise an open hand above the ON line → ON, lower it below the OFF line → OFF; smoothing, dwell, cooldown, re-arm, confidence gating, calibration.
 * **Voice** (Web Speech API): strict allowlist — “Light on”, “Turn the light off”, *« Allume la lumière »*, *« Ferme la lumière »*, «شغّل الضوء», «طفّي الضو» …
 * **Safety** — visible emergency stop (header button or `Esc`), no automatic switching after connecting, explicit acknowledgement before the first test telegram, default-deny group-address policy on the bridge.
 * **Responsive & accessible** — phone/tablet/desktop, keyboard operable, visible focus, screen-reader announcements, reduced motion, 2D fallback without WebGL.
@@ -32,6 +39,33 @@ your private LAN, send KNXnet/IP UDP or hold a tunnel, and the browser cannot sp
 raw UDP — so real KNX traffic always goes **browser → bridge (or HA) → KNX**.
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API contract: [docs/API.md](docs/API.md) ·
 Security: [docs/SECURITY.md](docs/SECURITY.md).
+
+## Documentation
+
+| Document | For | Contents |
+| --- | --- | --- |
+| [USER_GUIDE.md](USER_GUIDE.md) | Everyday users | Step-by-step use of simulation, gestures, voice, bridge and Home Assistant connection |
+| [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md) | Owners, installers, developers | Full specification: requirements, flows, KNX integration, privacy, configuration, compatibility matrix |
+| [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) | Operators, installers | Deployment gates, hardware and Home Assistant validation plans, operations |
+| [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | Everyone deciding on a deployment | Evidence-based findings, readiness decisions, remediation roadmap |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Developers | Current architecture, traced command lifecycle, data map, proposed target architecture |
+| [docs/SECURITY.md](docs/SECURITY.md) · [docs/API.md](docs/API.md) · [bridge/README.md](bridge/README.md) | Developers, installers | Security model, bridge API contract, bridge installation |
+| [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) | Reviewers | What was built and how it was verified |
+
+## Privacy
+
+* **Camera:** starts only after **Enable camera**. Frames and hand landmarks are processed in the
+  browser and are never uploaded or recorded. The **MediaPipe Tasks Vision** library does send
+  **usage telemetry** to Google (`odml.pa.googleapis.com`) about every 60 s while hand tracking runs.
+  It contains the SDK version, task type and latency statistics, and is sent with your IP address,
+  browser user agent and the page origin. It includes **no images, landmarks or audio**. This was
+  confirmed by network capture during the audit ([SE7-03](SECURITY_AUDIT.md)); the library offers no
+  opt-out.
+* **Microphone:** only during an explicit **Listen** or a 60 s hands-free session. Most browsers
+  send audio to their vendor's speech service (Google/Apple) unless on-device recognition is active.
+* **Storage:** settings in `localStorage`; bridge and Home Assistant session tokens in the tab's
+  `sessionStorage`; no cookies; no server-side database. Details:
+  [TECHNICAL_SPECIFICATION.md §7](TECHNICAL_SPECIFICATION.md#7-privacy--security).
 
 ## Quick start (local development)
 
@@ -76,8 +110,13 @@ requests and the WebSocket API is not subject to CORS.
 
 **Connect KNX → Home Assistant**, enter the HA URL and **Sign in with Home Assistant**.
 You log in on your own HA login page; SE7ENX never sees your password and never asks
-for a long-lived token. The short-lived session lives only in that browser tab and is
-revoked on Disconnect. Capabilities:
+you to create a long-lived access token. HA issues an access token (30 min, refreshed
+automatically) and a **refresh token that stays valid in HA for up to 90 days after its
+last use**. Both are kept in that browser tab's `sessionStorage` and carry the **full
+rights of the HA user**, because HA tokens have no scopes. Disconnect asks HA to revoke
+them (best effort). **Use a dedicated non-admin HA user** and see
+[SE7-01](SECURITY_AUDIT.md). This path has only been tested against a mock HA server.
+Capabilities:
 
 | HA account | Commands | Bus confirmation | Device state |
 | --- | --- | --- | --- |
@@ -126,7 +165,7 @@ The app detects these cases, warns in the wizard, and annotates requests with
 
 ## Gestures
 
-1. **Gesture** tab → **Enable camera** (the browser asks for permission; video stays on your device).
+1. **Gesture** tab → **Enable camera** (the browser asks for permission; video stays on your device; the MediaPipe library sends usage telemetry without images to Google, see [Privacy](#privacy)).
 2. Raise an **open hand** above the cyan line and hold ~0.5 s → ON. Lower it below the amber
    line and hold → OFF. After a trigger, move the hand out of the zone to re-arm.
 3. **Calibrate** adapts the lines to your position (hold low, then high). Tune hold time,
@@ -156,6 +195,9 @@ npx playwright install chromium && npm run test:e2e   # browser tests (starts ne
 cd bridge && python -m pytest && ruff check .          # bridge tests incl. real xknx ↔ fake KNXnet/IP interface
 ```
 
+Security probes used by the audit (bridge abuse cases, browser storage/revocation, network
+egress): see [audit/README.md](audit/README.md).
+
 ## Troubleshooting
 
 | Problem | What to check |
@@ -181,6 +223,10 @@ cd bridge && python -m pytest && ruff check .          # bridge tests incl. real
 * Speech recognition availability, accuracy and privacy depend on the browser vendor.
 * Routing (multicast) cannot provide bus confirmation; non-admin Home Assistant users get no bus confirmation.
 * The bridge keeps sessions in memory — restarting it requires pairing again.
+* **Not verified on real KNX hardware or a real Home Assistant**; TCP tunnelling, KNX Secure and routing are implemented via xknx but untested.
+* After a read timeout or a KNX reconnect, "Device confirmed" can show a stale cached value ([SE7-02](SECURITY_AUDIT.md)).
+* The emergency stop applies to the current browser only; the bridge has no roles or kill switch ([SE7-04](SECURITY_AUDIT.md), [SE7-07](SECURITY_AUDIT.md)).
+* Full list of known weaknesses: [SECURITY_AUDIT.md](SECURITY_AUDIT.md#4-findings-register).
 
 ## Project structure
 
@@ -191,6 +237,7 @@ src/lib/                 domain logic: knx, state, commands, adapters, bridge cl
 tests/unit|integration|e2e   Vitest + Playwright
 bridge/                  SE7ENX Bridge (FastAPI + xknx), tests, fake KNXnet/IP interface, Docker/systemd
 docs/                    API contract, architecture, security, screenshots
+audit/                   security probes + raw results referenced by SECURITY_AUDIT.md
 ```
 
 ## License

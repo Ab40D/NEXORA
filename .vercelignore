@@ -6,3 +6,6 @@ test-results/
 docs/
 *.md
 !README.md
+
+# Security audit probes and their raw results are not part of the deployment.
+audit/

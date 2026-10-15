@@ -48,6 +48,13 @@ docker compose logs -f se7enx-bridge     # pairing code
 and discovery need direct LAN access. On Docker Desktop (macOS/Windows) use TCP
 tunnelling, or UDP tunnelling with `SE7ENX_KNX_ROUTE_BACK=true`, and publish port 8787.
 
+> **Security note (audit SE7-15).** Unlike the pip/systemd install (loopback by default),
+> the Docker image sets `SE7ENX_HOST=0.0.0.0`. With host networking, the bridge therefore listens on
+> **every interface of the host**, including VPN and guest networks. Set `SE7ENX_HOST=127.0.0.1` in
+> `.env` when you publish the bridge through Tailscale Serve or a reverse proxy. Otherwise set your
+> LAN IP and firewall port 8787 to trusted clients. Serve it over HTTPS whenever other devices
+> connect: over plain HTTP the session token and pairing code are visible on the network (SE7-05).
+
 ### systemd (Raspberry Pi etc.)
 
 See [`deploy/se7enx-bridge.service`](deploy/se7enx-bridge.service) (hardened unit,
@@ -72,14 +79,14 @@ Invalid values stop the bridge with a clear message (exit code 2).
 | `SE7ENX_KNX_KEYRING_PATH` / `_PASSWORD` | – | KNX Secure keyring from ETS |
 | `SE7ENX_KNX_SECURE_USER_ID` / `_USER_PASSWORD` / `_DEVICE_AUTH_PASSWORD` | – | Manual secure tunnelling credentials |
 | `SE7ENX_KNX_BACKBONE_KEY` | – | Secure routing (32 hex chars) |
-| `SE7ENX_PAIRING_CODE` | random | Fixed code (8–32 alphanumerics) — treat like a password |
+| `SE7ENX_PAIRING_CODE` | random | Fixed code (8–32 alphanumerics) — treat like a password. Only the format is checked (`AAAAAAAA` is accepted), fixed codes never rotate, and the code is printed to the log: use ≥ 16 random characters, or leave unset (audit SE7-13) |
 | `SE7ENX_PAIRING_TTL_MIN` | `15` | Rotation interval of random codes |
 | `SE7ENX_SESSION_TTL_HOURS` / `SE7ENX_MAX_SESSIONS` | `12` / `10` | |
 | `SE7ENX_ALLOW_CLIENT_GATEWAY_CONFIG` | `false` | Let the browser choose the interface (IPv4 in the CIDRs below only) |
 | `SE7ENX_CLIENT_GATEWAY_CIDRS` | RFC 1918 + link-local | |
 | `SE7ENX_ENABLE_DISCOVERY` / `SE7ENX_ENABLE_DOCS` | `true` / `false` | Docs = FastAPI `/docs` |
 | `SE7ENX_TLS_CERT` / `SE7ENX_TLS_KEY` | – | Serve HTTPS directly |
-| `SE7ENX_TRUST_PROXY` | `false` | Honour `X-Forwarded-For` from a trusted reverse proxy |
+| `SE7ENX_TRUST_PROXY` | `false` | Honour `X-Forwarded-For` from a reverse proxy. **Caveat (audit SE7-06):** this currently trusts the header from *any* peer and uses its left-most entry, which clients can pre-set. Enable it only when the bridge binds `127.0.0.1` behind the proxy, and know that rate-limit identities may still be spoofable. Leaving it off is safe against spoofing, but then all proxied clients share one pairing-attempt budget |
 | `SE7ENX_COMMAND_LIMIT` / `_COMMAND_WINDOW_S` / `_GLOBAL_COMMAND_LIMIT` | `6` / `10` / `20` | Command rate limits |
 | `SE7ENX_LOG_LEVEL` | `INFO` | |
 
@@ -90,7 +97,7 @@ Browsers enforce rules you cannot bypass; pick one setup:
 | Setup | Works in | How |
 | --- | --- | --- |
 | Web app and bridge on the **same computer** | Chrome, Edge, Firefox (not Safari) | Bridge URL `http://127.0.0.1:8787` (loopback is allowed from HTTPS pages). |
-| **Tailscale Serve** (recommended for phones) | All browsers | `tailscale serve --bg 8787` → `https://<host>.<tailnet>.ts.net`; add the web origin to `SE7ENX_ALLOWED_ORIGINS`; set `SE7ENX_TRUST_PROXY=true`. |
+| **Tailscale Serve** (recommended for phones) | All browsers | `tailscale serve --bg 8787` → `https://<host>.<tailnet>.ts.net`; keep `SE7ENX_HOST=127.0.0.1`; add the web origin to `SE7ENX_ALLOWED_ORIGINS`. `SE7ENX_TRUST_PROXY=true` gives per-device rate limits but see its caveat above. |
 | **Bridge TLS on the LAN** | All browsers that trust the cert | e.g. `mkcert bridge.local 192.168.1.5` and install the mkcert CA on your devices; set `SE7ENX_TLS_CERT/KEY`, `SE7ENX_HOST=0.0.0.0`; URL `https://192.168.1.5:8787`. |
 | Plain `http://<LAN-IP>:8787` from the HTTPS app | Chrome/Edge 142+ only | Chrome asks for **Local network access** permission — allow it. Safari and Firefox block this as mixed content. |
 | Run the web app locally (`npm run dev`) | All browsers | An `http://localhost:3000` page may call `http://` bridges. |

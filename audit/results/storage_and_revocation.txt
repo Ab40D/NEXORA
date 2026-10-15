@@ -1,0 +1,12 @@
+=== sessionStorage keys after pairing: [ 'se7enx.bridge.session' ]
+  se7enx.bridge.session = {
+  baseUrl: 'http://127.0.0.1:8799',
+  token: 'K8xF…(43 chars)',
+  expiresAt: '2026-10-16T10:43:38Z'
+}
+=== localStorage keys: [ 'se7enx.settings.v1' ]
+  se7enx.settings.v1.connection = {"bridgeUrl":"http://127.0.0.1:8799","hassUrl":"","groupAddress":"0/0/1","statusAddress":"0/0/2","dpt":"1.001","onLevel":100}
+=== cookies: ""
+bridge accepts stored token before Disconnect: 200
+=== after Disconnect — sessionStorage keys: []
+bridge response to the old token after Disconnect: 401 (401 = revoked server-side)

@@ -1,0 +1,15 @@
+[0.7s] page loaded (simulation)
+[2.7s] simulated ON
+[16.9s] hand tracking running — keeping camera on for 75s
+[100.5s] camera off
+
+=== same-origin requests (path prefix → count)
+  /                            1
+  /_next/static                12
+  /mediapipe/wasm              2
+  /models/hand_landmarker.task 1
+
+=== off-origin requests: 1 (all aborted)
+  2026-10-15T22:44:59.499Z POST https://odml.pa.googleapis.com/v1/log [fetch] body=90B
+    header names: accept, content-type, origin, referer, sec-ch-ua, sec-ch-ua-mobile, sec-ch-ua-platform, user-agent, x-goog-api-key
+    printable strings in body: ["1.1.1*","1.1.1*"]
