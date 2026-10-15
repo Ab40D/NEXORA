@@ -1,0 +1,8 @@
+# The SE7ENX Bridge runs on the customer's LAN, never on Vercel.
+bridge/
+tests/
+playwright-report/
+test-results/
+docs/
+*.md
+!README.md
