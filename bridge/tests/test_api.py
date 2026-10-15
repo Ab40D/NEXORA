@@ -275,6 +275,7 @@ def test_event_stream_delivers_hello_and_live_state(live: LiveServer, fake: Fake
     assert resp.status == 200
     assert resp.getheader("content-type", "").startswith("text/event-stream")
     assert resp.getheader("access-control-allow-origin") == ORIGIN
+    assert "no-transform" in resp.getheader("cache-control", "")  # proxies must not buffer/compress SSE
 
     events: list[tuple[str, dict]] = []
     current = None

@@ -129,6 +129,19 @@ describe("BridgeAdapter", () => {
     await a.dispose();
   });
 
+  it("explains a buffered event stream instead of waiting silently", async () => {
+    bridge.state.bufferStream = true;
+    const client = new BridgeClient({ baseUrl: bridge.url, streamTimeouts: { firstByteMs: 300 } });
+    await client.pair("ABCD2345", "t");
+    const res = await client.putLight("primary", { switchAddress: "0/0/1", statusAddress: "0/0/2", dpt: "1.001", onLevel: 100 });
+    const a = new BridgeAdapter(client, res.light, await client.knxStatus());
+    const events: AdapterEvent[] = [];
+    a.subscribe((e) => events.push(e));
+    a.start();
+    await waitFor(() => events.some((e) => e.type === "link" && e.status === "reconnecting" && /buffering/.test(e.message ?? "")), 3000);
+    await a.dispose();
+  });
+
   it("stops and reports an error when the session is revoked (e.g. bridge restart)", async () => {
     const { a, events } = await adapter();
     a.start();

@@ -30,6 +30,7 @@ from se7enx_bridge.config import Settings  # noqa: E402
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8799)
     parser.add_argument("--origin", action="append", default=None, help="allowed web origin (repeatable)")
     parser.add_argument("--pairing-code", default=os.environ.get("SE7ENX_PAIRING_CODE", "DEMO-2026"))
@@ -41,8 +42,12 @@ async def main() -> None:
     host, port = fake.address
     logging.getLogger("dev-stack").warning("%s on %s:%s — NOT real hardware", FAKE_NAME, host, port)
 
-    origins = tuple(args.origin or ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3100", "http://127.0.0.1:3100"])
+    origins = tuple(
+        args.origin
+        or ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3100", "http://127.0.0.1:3100"]
+    )
     settings = Settings(
+        host=args.host,
         port=args.port,
         allowed_origins=origins,
         pairing_code="".join(c for c in args.pairing_code.upper() if c.isalnum()),
@@ -52,7 +57,9 @@ async def main() -> None:
         gateway_port=port,
         local_ip="127.0.0.1",
     )
-    server = uvicorn.Server(uvicorn.Config(create_app(settings), host="127.0.0.1", port=args.port, log_level="warning", loop="asyncio"))
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(settings), host=args.host, port=args.port, log_level="warning", loop="asyncio")
+    )
     await server.serve()
 
 

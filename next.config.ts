@@ -43,9 +43,23 @@ const securityHeaders = [
   ...(frameAncestors === "'none'" ? [{ key: "X-Frame-Options", value: "DENY" }] : []),
 ];
 
+/**
+ * DEVELOPMENT / DEMO ONLY: same-origin rewrite to ONE fixed, operator-configured
+ * bridge URL (e.g. a local demo stack behind a preview proxy that cannot expose a
+ * second host). Off unless SE7ENX_DEV_BRIDGE_REWRITE is set at build time. The
+ * target is never taken from the client, so this is not an open proxy. Do not
+ * use it to reach a customer LAN — serverless platforms cannot reach private
+ * networks anyway.
+ */
+const devBridgeRewrite = process.env.SE7ENX_DEV_BRIDGE_REWRITE?.trim().replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  async rewrites() {
+    if (!devBridgeRewrite) return [];
+    return [{ source: "/demo-bridge/:path*", destination: `${devBridgeRewrite}/:path*` }];
+  },
   allowedDevOrigins: process.env.SE7ENX_ALLOWED_DEV_ORIGINS
     ? process.env.SE7ENX_ALLOWED_DEV_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
     : undefined,

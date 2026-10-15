@@ -739,8 +739,11 @@ def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
                 sub.close()
                 state.streams[session.id] = max(0, state.streams.get(session.id, 1) - 1)
 
+        # no-transform: compressing proxies (e.g. `next start`, CDNs) must not buffer the stream
         return StreamingResponse(
-            stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no"},
         )
 
     app.include_router(r)

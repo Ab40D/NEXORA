@@ -15,6 +15,8 @@ export interface MockBridgeState {
   lightValue: "on" | "off" | "unknown";
   writes: Array<{ ga: string; payload: number | number[] }>;
   malformedSession: boolean;
+  /** simulate a proxy that buffers the event stream (headers sent, no data) */
+  bufferStream: boolean;
 }
 
 export interface MockBridge {
@@ -66,6 +68,7 @@ export async function startMockBridge(init: Partial<MockBridgeState> = {}): Prom
     lightValue: "unknown",
     writes: [],
     malformedSession: false,
+    bufferStream: false,
     ...init,
   };
   const light = { id: "primary", switchAddress: "0/0/1", statusAddress: "0/0/2" as string | null, dpt: "1.001", onLevel: 100 };
@@ -161,9 +164,13 @@ export async function startMockBridge(init: Partial<MockBridgeState> = {}): Prom
     if (path === "/events") {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" });
       streams.add(res);
+      req.on("close", () => streams.delete(res));
+      if (state.bufferStream) {
+        res.flushHeaders();
+        return;
+      }
       res.write(`: connected\n\n`);
       res.write(`event: hello\ndata: ${JSON.stringify({ bridgeId: "mock", knx: KNX(state) })}\n\n`);
-      req.on("close", () => streams.delete(res));
       return;
     }
     return err(res, 404, "NOT_FOUND", "Not found");

@@ -40,6 +40,8 @@ export interface BridgeClientOptions {
   timeoutMs?: number;
   /** origin of this web app, used in actionable error hints */
   appOrigin?: string;
+  /** event stream watchdogs (tests use shorter values) */
+  streamTimeouts?: { firstByteMs?: number; idleMs?: number };
 }
 
 export interface EventStreamHandlers {
@@ -55,6 +57,8 @@ export interface EventStreamHandle {
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000];
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
+/** The bridge sends its hello immediately; silence means something is buffering the stream. */
+const STREAM_FIRST_BYTE_TIMEOUT_MS = 10_000;
 
 export class BridgeClient {
   readonly baseUrl: string;
@@ -62,6 +66,8 @@ export class BridgeClient {
   private readonly targetAddressSpace: "loopback" | "local" | undefined;
   private readonly timeoutMs: number;
   private readonly appOrigin: string;
+  private readonly firstByteMs: number;
+  private readonly idleMs: number;
 
   constructor(opts: BridgeClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -69,6 +75,8 @@ export class BridgeClient {
     this.targetAddressSpace = opts.targetAddressSpace;
     this.timeoutMs = opts.timeoutMs ?? 8000;
     this.appOrigin = opts.appOrigin ?? (typeof location !== "undefined" ? location.origin : "this site");
+    this.firstByteMs = opts.streamTimeouts?.firstByteMs ?? STREAM_FIRST_BYTE_TIMEOUT_MS;
+    this.idleMs = opts.streamTimeouts?.idleMs ?? STREAM_IDLE_TIMEOUT_MS;
   }
 
   get hasToken(): boolean {
@@ -238,9 +246,17 @@ export class BridgeClient {
       if (closed) return;
       controller = new AbortController();
       let watchdog: ReturnType<typeof setTimeout> | null = null;
+      let gotData = false;
+      let stalled = false;
       const kick = () => {
         if (watchdog) clearTimeout(watchdog);
-        watchdog = setTimeout(() => controller?.abort(), STREAM_IDLE_TIMEOUT_MS);
+        watchdog = setTimeout(
+          () => {
+            stalled = true;
+            controller?.abort();
+          },
+          gotData ? this.idleMs : this.firstByteMs,
+        );
       };
       try {
         const init: RequestInit & { targetAddressSpace?: string } = {
@@ -273,6 +289,7 @@ export class BridgeClient {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          gotData = true;
           kick();
           for (const msg of parser.push(decoder.decode(value, { stream: true }))) {
             let data: unknown = {};
@@ -297,7 +314,15 @@ export class BridgeClient {
         const e =
           err instanceof AdapterError
             ? err
-            : new AdapterError("STREAM_LOST", "Lost connection to the bridge event stream.", { cause: err });
+            : stalled
+              ? new AdapterError(
+                  gotData ? "STREAM_IDLE" : "STREAM_BUFFERED",
+                  gotData
+                    ? "The bridge event stream went silent."
+                    : "Connected to the bridge, but live updates are not arriving — a proxy may be buffering or compressing the event stream.",
+                  { hint: "If the bridge is behind a reverse proxy, disable buffering/compression for /api/v1/events.", cause: err },
+                )
+              : new AdapterError("STREAM_LOST", "Lost connection to the bridge event stream.", { cause: err });
         scheduleRetry(e);
       } finally {
         if (watchdog) clearTimeout(watchdog);
