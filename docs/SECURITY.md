@@ -71,7 +71,7 @@ Bridge: `Content-Security-Policy: default-src 'none'`, `X-Frame-Options: DENY`,
 | SE7-08 | Medium | No group-address allowlist on the Home Assistant path |
 | SE7-09 | Medium | CSP `'unsafe-inline'`, broad `connect-src`, no HSTS from the app |
 | SE7-10 | Medium | Demo rewrite not blocked in production builds |
-| SE7-11 … SE7-23 | Low / Info | See the [findings register](../SECURITY_AUDIT.md#4-findings-register) |
+| SE7-11 … SE7-26 | Low / Info | See the [findings register](../SECURITY_AUDIT.md#4-findings-register); deployment questions answered in [PRE_DEPLOYMENT_REVIEW.md](../PRE_DEPLOYMENT_REVIEW.md) |
 
 ## Deployment checklist
 

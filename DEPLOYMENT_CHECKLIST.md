@@ -29,14 +29,21 @@ Use this checklist for every deployment. Tick items only after verifying them yo
       telemetry to Google (SE7-03), browser speech services, and the browser storage listed in
       [TECHNICAL_SPECIFICATION.md §7](TECHNICAL_SPECIFICATION.md#7-privacy--security), **or** the telemetry is blocked.
 - [ ] Home Assistant and bridge paths are labelled experimental in any public announcement.
+- [ ] **[GATE: public demo]** 2FA enabled on the Vercel and GitHub accounts; `main` branch protected; Vercel
+      *Deployment Protection* for previews left on (Standard Protection is the default for new projects).
+- [ ] **[GATE: public demo]** The public demo's origin is **not** listed in any real bridge's `SE7ENX_ALLOWED_ORIGINS`.
+      Real control uses a separate private origin (localhost, a second project, or a protected branch URL),
+      because the bridge trusts *every visitor* of an allowed origin
+      ([PRE_DEPLOYMENT_REVIEW.md §7](PRE_DEPLOYMENT_REVIEW.md#7-can-a-visitor-of-your-public-website-control-your-real-knx-devices)).
 
 ### After deploying
 - [ ] `https://<app>/api/health` returns `"ok": true` and `"knx": {"handledHere": false}`.
 - [ ] Response headers (`curl -sI https://<app>/`) include `Content-Security-Policy` with
       `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
       `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`.
-- [ ] `Strict-Transport-Security` is present. The app does not set it itself (SE7-09), so it must come
-      from the host; check both the platform domain and any custom domain (not verified by the audit).
+- [ ] `Strict-Transport-Security` is present. The app does not set it itself (SE7-09); Vercel documents automatic
+      HSTS on `*.vercel.app` and custom domains. Confirm it with `curl -sI` on your actual domain(s), and add it
+      yourself when self-hosting.
 - [ ] `https://<app>/demo-bridge/api/v1/health` returns **404** (no demo rewrite active).
 - [ ] The app opens in **Simulation**; camera and microphone are requested only after clicking
       **Enable camera** / **Enable voice commands**.
@@ -54,8 +61,11 @@ Use this checklist for every deployment. Tick items only after verifying them yo
 - [ ] `se7enx-bridge scan` finds the interface (if multicast is allowed on the network).
 
 ### Configuration (`bridge/.env.example`)
-- [ ] `SE7ENX_ALLOWED_ORIGINS` lists **exactly** the web app origin(s), e.g. `https://se7enx.example.com`.
-- [ ] **[GATE: hardware test]** `SE7ENX_ALLOWED_GROUP_ADDRESSES` lists **only** the test light's switching and status addresses.
+- [ ] `SE7ENX_ALLOWED_ORIGINS` lists **exactly** the web app origin(s), e.g. `https://se7enx.example.com`. Remove
+      dev origins such as `http://localhost:3000` that the example file contains (SE7-25).
+- [ ] **[GATE: hardware test]** `SE7ENX_ALLOWED_GROUP_ADDRESSES` lists **only** the test light's switching and status
+      addresses. **Never `*`, wildcards or wide ranges**: the bridge accepts them without warning (SE7-24). Do not keep
+      the example's `0/0/1,0/0/2` unless those really are your light's addresses (SE7-25).
 - [ ] `SE7ENX_PAIRING_CODE` **unset** (random, single-use, rotating codes). If a fixed code is
       unavoidable: ≥ 16 random characters, env file readable by the service user only (SE7-13).
 - [ ] `SE7ENX_KNX_CONNECTION_TYPE` and `SE7ENX_KNX_GATEWAY_IP` set explicitly (avoid `automatic` in production).
@@ -161,7 +171,7 @@ switching could cause harm.**
 - [ ] SE7-04: roles, admin session list/revoke, throttled disconnect.
 - [ ] SE7-05: HTTPS by default for the bridge.
 - [ ] SE7-07: bridge-side emergency stop and per-address switching interval.
-- [ ] SE7-06, SE7-11 to SE7-16 addressed or explicitly accepted.
+- [ ] SE7-06, SE7-11 to SE7-16 and SE7-24 to SE7-26 addressed or explicitly accepted.
 - [ ] §3 fully executed on representative hardware, including KNX Secure if used.
 - [ ] Monitoring/alerting for bridge availability and failed commands; an update process for installed bridges.
 

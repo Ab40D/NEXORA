@@ -48,6 +48,7 @@ Security: [docs/SECURITY.md](docs/SECURITY.md).
 | [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md) | Owners, installers, developers | Full specification: requirements, flows, KNX integration, privacy, configuration, compatibility matrix |
 | [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) | Operators, installers | Deployment gates, hardware and Home Assistant validation plans, operations |
 | [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | Everyone deciding on a deployment | Evidence-based findings, readiness decisions, remediation roadmap |
+| [PRE_DEPLOYMENT_REVIEW.md](PRE_DEPLOYMENT_REVIEW.md) | Anyone about to deploy or share the link | What data leaves the device, attack scenarios for a public site, verdicts for demo / real bridge / production |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Developers | Current architecture, traced command lifecycle, data map, proposed target architecture |
 | [docs/SECURITY.md](docs/SECURITY.md) · [docs/API.md](docs/API.md) · [bridge/README.md](bridge/README.md) | Developers, installers | Security model, bridge API contract, bridge installation |
 | [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) | Reviewers | What was built and how it was verified |
