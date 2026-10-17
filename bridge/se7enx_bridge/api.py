@@ -261,14 +261,16 @@ class SecurityMiddleware:
 
 
 def default_adapter_factories(
-    settings: Settings, store: ConfigStore
+    settings: Settings, store: ConfigStore, knx: KnxService, policy: GroupAddressPolicy
 ) -> dict[str, Callable[[AdapterCallbacks], DeviceAdapter]]:
     from .devices.adapters.homeassistant import HomeAssistantAdapter
+    from .devices.adapters.knx import KnxDeviceAdapter
     from .devices.adapters.shelly import ShellyAdapter
 
     return {
         "shelly": lambda cb: ShellyAdapter(cb, settings, store),
         "homeassistant": lambda cb: HomeAssistantAdapter(cb, settings, store),
+        "knx": lambda cb: KnxDeviceAdapter(cb, knx, policy),  # reuses the single xknx connection
     }
 
 
@@ -282,11 +284,11 @@ class BridgeState:
         self.settings = settings
         self.knx = knx
         self.broker = EventBroker()
+        self.policy = GroupAddressPolicy(settings.allowed_group_addresses)
         self.store = ConfigStore(settings.data_dir)
-        factories = default_adapter_factories(settings, self.store)
+        factories = default_adapter_factories(settings, self.store, knx, self.policy)
         factories.update(adapter_factories or {})
         self.registry = DeviceRegistry(settings, self.store, self.broker, factories)
-        self.policy = GroupAddressPolicy(settings.allowed_group_addresses)
         self.bridge_id = secrets.token_hex(6)
         self.pairing = PairingManager(settings.pairing_code, settings.pairing_ttl_s, on_new_code=self._announce_code)
         self.sessions = SessionStore(settings.session_ttl_s, settings.max_sessions)

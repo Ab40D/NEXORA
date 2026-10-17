@@ -84,6 +84,9 @@ class FakeInterface(asyncio.DatagramProtocol):
     max_clients: int = 4
     clients: dict[int, Client] = field(default_factory=dict)
     received: list[tuple[str, str, object]] = field(default_factory=list)  # (service, ga, payload)
+    # Generic group objects (dimmer / blind / sensor actuators):
+    mirrors: dict[str, str] = field(default_factory=dict)  # write GA -> feedback GA echoing the payload
+    objects: dict[str, DPTBinary | DPTArray] = field(default_factory=dict)  # readable group object values
     transport: asyncio.DatagramTransport | None = None
 
     # -------------------------------------------------------------- plumbing
@@ -261,6 +264,13 @@ class FakeInterface(asyncio.DatagramProtocol):
         p = telegram.payload
         if isinstance(p, GroupValueWrite):
             value = self._write_value(p)
+            if ga in self.mirrors:
+                target = self.mirrors[ga]
+                self.objects[target] = p.value
+                if self.feedback:
+                    self._indicate(
+                        Telegram(destination_address=GroupAddress(target), payload=GroupValueWrite(p.value)), a.ia
+                    )
             if ga == a.switch:
                 a.value = value
                 if self.feedback and a.status:
@@ -271,10 +281,20 @@ class FakeInterface(asyncio.DatagramProtocol):
         elif isinstance(p, GroupValueRead):
             if not self.respond_reads:
                 return
+            if ga in self.objects:
+                self._indicate(
+                    Telegram(destination_address=GroupAddress(ga), payload=GroupValueResponse(self.objects[ga])), a.ia
+                )
+                return
             if ga == a.status or (ga == a.switch and a.readable_switch):
                 self._indicate(
                     Telegram(destination_address=GroupAddress(ga), payload=GroupValueResponse(self._payload())), a.ia
                 )
+
+    def send_value(self, ga: str, payload: DPTBinary | DPTArray, source: str = "1.1.30") -> None:
+        """Simulate any device (e.g. a sensor) writing a group value onto the bus."""
+        self.objects[ga] = payload
+        self._indicate(Telegram(destination_address=GroupAddress(ga), payload=GroupValueWrite(payload)), source)
 
     def external_switch(self, value: int, source: str = "1.1.20") -> None:
         """Simulate a wall switch writing the switching address."""
