@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge, Callout, Card, CardHeader, Label, Switch } from "@/components/ui/primitives";
 import { useNow } from "@/lib/device";
+import { useTarget } from "@/lib/experience/store";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { useSettings } from "@/lib/state/settings";
 import { useAppStore } from "@/lib/state/store";
 import { cn } from "@/lib/utils";
@@ -20,6 +22,19 @@ import {
   useVoiceStore,
 } from "@/lib/voice/voice-controller";
 
+const ERROR_CODES = new Set([
+  "not-allowed",
+  "service-not-allowed",
+  "audio-capture",
+  "network",
+  "no-speech",
+  "aborted",
+  "language-not-supported",
+  "bad-grammar",
+  "NotAllowedError",
+  "NotFoundError",
+]);
+
 const STATUS_TONE = {
   executed: "text-ok",
   pending: "text-accent",
@@ -33,7 +48,10 @@ export function VoicePanel() {
   const voice = useSettings((s) => s.voice);
   const setVoice = useSettings((s) => s.setVoice);
   const paused = useAppStore((s) => s.light.dispatchPaused);
-  const isSim = useAppStore((s) => s.light.mode === "simulation");
+  const legacySim = useAppStore((s) => s.light.mode === "simulation");
+  const target = useTarget();
+  const isSim = target ? target.simulated : legacySim;
+  const { t } = useT();
   const now = useNow(500);
   const [installing, setInstalling] = useState(false);
   const family = languageFamily(voice.lang);
@@ -47,11 +65,10 @@ export function VoicePanel() {
   if (v.supported === false) {
     return (
       <Card>
-        <CardHeader icon={<MicOff className="h-4 w-4" />} title="Voice commands not available" />
+        <CardHeader icon={<MicOff className="h-4 w-4" />} title={t("voice.unavailableTitle")} />
         <div className="space-y-3 px-4 pb-5 pt-3 sm:px-5">
-          <Callout tone="warn" title="This browser does not support speech recognition">
-            Voice control uses the Web Speech API, which is available in Chrome, Edge and Safari but not enabled by default in Firefox.
-            Manual controls and gestures keep working.
+          <Callout tone="warn" title={t("voice.unsupportedTitle")}>
+            {t("voice.unsupportedBody")}
           </Callout>
         </div>
       </Card>
@@ -59,30 +76,35 @@ export function VoicePanel() {
   }
 
   const remaining = v.session ? Math.max(0, Math.ceil((v.session.endsAt - now) / 1000)) : 0;
+  const errorText = v.error ? (ERROR_CODES.has(v.error.code) ? t(`voice.errors.${v.error.code}` as MessageKey) : v.error.message) : null;
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader
           icon={<Mic className="h-4 w-4" />}
-          title="Voice commands"
-          subtitle={`Only allowlisted phrases are accepted. Voice can switch the light ${isSim ? "(simulated)" : "(REAL)"} on or off — nothing else.`}
-          actions={v.listening ? <Badge tone="danger" dot>Listening</Badge> : v.enabled ? <Badge tone="ok">Enabled</Badge> : null}
+          title={t("voice.title")}
+          subtitle={isSim ? t("voice.subtitleSim") : t("voice.subtitleReal")}
+          actions={
+            v.listening ? (
+              <Badge tone="danger" dot>
+                {t("voice.listening")}
+              </Badge>
+            ) : v.enabled ? (
+              <Badge tone="ok">{t("voice.enabled")}</Badge>
+            ) : null
+          }
         />
         <div className="space-y-4 px-4 pb-5 pt-3 sm:px-5">
           {!v.enabled ? (
             <>
               <div className="flex items-start gap-2 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-xs leading-relaxed text-ink-300">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />
-                <p>
-                  The microphone is used only while you press <strong className="text-ink-100">Listen</strong> (or during a 60-second hands-free
-                  session you start). Speech is transcribed by your browser&apos;s speech service — in Chrome and Safari this usually means audio is sent
-                  to Google or Apple — unless on-device recognition is available and enabled. SE7ENX never receives your audio.
-                </p>
+                <p>{t("voice.privacy")}</p>
               </div>
               <Button variant="primary" onClick={() => void enableVoice()} data-testid="enable-voice">
                 <Mic className="h-4 w-4" aria-hidden />
-                Enable voice commands
+                {t("voice.enable")}
               </Button>
             </>
           ) : (
@@ -92,38 +114,38 @@ export function VoicePanel() {
                   <>
                     <Button variant="primary" size="lg" onClick={listenOnce} disabled={paused} data-testid="voice-listen">
                       <Mic className="h-5 w-5" aria-hidden />
-                      Listen
+                      {t("voice.listen")}
                     </Button>
                     <Button variant="outline" onClick={startHandsFree} disabled={paused}>
                       <Radio className="h-4 w-4" aria-hidden />
-                      Hands-free 60 s
+                      {t("voice.handsFree")}
                     </Button>
                   </>
                 ) : (
                   <Button variant="danger" size="lg" onClick={stopListening}>
                     <Square className="h-4 w-4" aria-hidden />
-                    Stop listening {v.session ? `(${remaining}s)` : ""}
+                    {v.session ? t("voice.stopRemaining", { seconds: remaining }) : t("voice.stop")}
                   </Button>
                 )}
                 <Button variant="ghost" onClick={disableVoice}>
                   <MicOff className="h-4 w-4" aria-hidden />
-                  Disable
+                  {t("voice.disable")}
                 </Button>
               </div>
 
               <div className="grid gap-2 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-sm" aria-live="polite">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">Heard</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">{t("voice.heard")}</p>
                   <p className="mt-0.5 min-h-5 text-ink-100" dir={langOpt.dir} data-testid="voice-heard">
                     {v.interim ? <span className="text-ink-300">{v.interim}…</span> : v.lastHeard ? `“${v.lastHeard.transcript}”` : <span className="text-ink-400">—</span>}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">Result</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">{t("voice.result")}</p>
                   {v.lastResult ? (
                     <p className={cn("mt-0.5", STATUS_TONE[v.lastResult.status])} data-testid="voice-result">
-                      {v.lastResult.command ? `${v.lastResult.command.toUpperCase()} · ` : ""}
-                      {v.lastResult.status}: {v.lastResult.detail}
+                      {v.lastResult.command ? `${t(v.lastResult.command === "on" ? "light.on" : "light.off")} · ` : ""}
+                      {t(`voice.status.${v.lastResult.status}`)}: {v.lastResult.detail}
                     </p>
                   ) : (
                     <p className="mt-0.5 text-ink-400">—</p>
@@ -133,15 +155,21 @@ export function VoicePanel() {
             </>
           )}
 
-          {v.error ? (
-            <Callout tone="danger" role="alert" title="Voice error">
-              {v.error.message}
+          {errorText ? (
+            <Callout tone="danger" role="alert" title={t("voice.error")}>
+              {errorText}
             </Callout>
           ) : null}
-          {paused ? <Callout tone="danger" title="Emergency stop active">Voice commands are blocked until you resume hands-free control.</Callout> : null}
+          {paused ? (
+            <Callout tone="danger" title={t("voice.stoppedTitle")}>
+              {t("voice.stoppedBody")}
+            </Callout>
+          ) : null}
+          {target ? <p className="text-xs text-ink-300">{t("voice.target", { name: target.name })}</p> : null}
+          <p className="text-xs text-ink-400">{t("voice.chatHint")}</p>
 
           <div className="space-y-2">
-            <Label htmlFor="voice-lang">Recognition language</Label>
+            <Label htmlFor="voice-lang">{t("voice.language")}</Label>
             <select
               id="voice-lang"
               value={voice.lang}
@@ -165,19 +193,19 @@ export function VoicePanel() {
                 id="on-device"
                 checked={voice.preferOnDevice}
                 onCheckedChange={(c) => setVoice({ preferOnDevice: c })}
-                label="Prefer on-device recognition (experimental)"
+                label={t("voice.onDevice")}
                 description={
                   !voice.preferOnDevice
-                    ? "Keeps audio on this device when your browser has an offline language pack (Chrome 139+)."
+                    ? t("voice.onDeviceOff")
                     : v.onDevice === null
-                      ? "Checking availability…"
+                      ? t("voice.onDeviceChecking")
                       : v.onDevice === "available"
-                        ? "On-device recognition is used — audio stays on this device."
+                        ? t("voice.onDeviceAvailable")
                         : v.onDevice === "downloadable"
-                          ? "A language pack must be downloaded first. Until then the browser's online service is used."
+                          ? t("voice.onDeviceDownloadable")
                           : v.onDevice === "downloading"
-                            ? "Language pack downloading…"
-                            : "Not available for this language — the browser's online service is used."
+                            ? t("voice.onDeviceDownloading")
+                            : t("voice.onDeviceUnavailable")
                 }
               />
               {voice.preferOnDevice && v.onDevice === "downloadable" ? (
@@ -193,7 +221,7 @@ export function VoicePanel() {
                   }}
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
-                  {installing ? "Downloading…" : "Download language pack"}
+                  {installing ? t("voice.downloading") : t("voice.download")}
                 </Button>
               ) : null}
             </div>
@@ -202,11 +230,11 @@ export function VoicePanel() {
       </Card>
 
       <Card>
-        <CardHeader title="Allowed phrases" subtitle="Filler words like “please” are ignored. Negations and other sentences are rejected." />
+        <CardHeader title={t("voice.phrases")} subtitle={t("voice.phrasesSub")} />
         <div className="grid gap-3 px-4 pb-5 pt-3 sm:grid-cols-2 sm:px-5">
           {(["on", "off"] as const).map((k) => (
             <div key={k} className="rounded-xl border border-ink-700 bg-ink-900/60 p-3">
-              <p className={cn("text-[10px] font-semibold uppercase tracking-[0.12em]", k === "on" ? "text-warm" : "text-ink-300")}>{k === "on" ? "Switch on" : "Switch off"}</p>
+              <p className={cn("text-[10px] font-semibold uppercase tracking-[0.12em]", k === "on" ? "text-warm" : "text-ink-300")}>{k === "on" ? t("voice.switchOn") : t("voice.switchOff")}</p>
               <ul className="mt-1.5 space-y-1 text-sm text-ink-100" dir={langOpt.dir}>
                 {EXAMPLE_PHRASES[family][k].map((p) => (
                   <li key={p}>“{p}”</li>

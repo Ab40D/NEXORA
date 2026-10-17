@@ -1,17 +1,21 @@
 "use client";
 
-import { Cable, FlaskConical, Hand, Lightbulb, LightbulbOff, Mic, RefreshCw, Unplug } from "lucide-react";
+import { Cable, FlaskConical, Hand, Info, Lightbulb, LightbulbOff, Mic, RefreshCw, Unplug } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Callout, Card, CardHeader, KeyValue } from "@/components/ui/primitives";
+import { disconnectActiveBackend } from "@/lib/connection/session";
+import { useExperience } from "@/lib/experience/store";
 import { useGestureStore } from "@/lib/gesture/gesture-store";
+import { useT } from "@/lib/i18n";
 import { canDispatch } from "@/lib/state/selectors";
 import { useAppStore } from "@/lib/state/store";
 import { useUi } from "@/lib/state/ui-store";
 import { useVoiceStore } from "@/lib/voice/voice-controller";
-import { disconnectActiveBackend } from "@/lib/connection/session";
 
+/** "Classic" tab: the original single-light connection (simulation, SE7ENX Bridge, Home Assistant). */
 export function ControlPanel() {
+  const { t } = useT();
   const light = useAppStore((s) => s.light);
   const requestCommand = useAppStore((s) => s.requestCommand);
   const refreshState = useAppStore((s) => s.refreshState);
@@ -21,13 +25,14 @@ export function ControlPanel() {
   const camera = useGestureStore((s) => s.cameraStatus);
   const gesturesEnabled = useGestureStore((s) => s.gesturesEnabled);
   const voiceEnabled = useVoiceStore((s) => s.enabled);
+  const experienceActive = useExperience((s) => s.target !== "none");
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
 
   const isSim = light.mode === "simulation";
   const pending = light.lastCommand?.phase === "pending";
   const enabled = canDispatch(light) && !pending;
-  const t = light.target;
+  const target = light.target;
 
   const read = async () => {
     setReading(true);
@@ -35,7 +40,7 @@ export function ControlPanel() {
     try {
       await refreshState();
     } catch (err) {
-      setReadError(err instanceof Error ? err.message : "Read failed");
+      setReadError(err instanceof Error ? err.message : t("classic.readFailedGeneric"));
     } finally {
       setReading(false);
     }
@@ -43,35 +48,36 @@ export function ControlPanel() {
 
   return (
     <div className="space-y-4">
+      {experienceActive ? (
+        <Callout tone="neutral" icon={<Info className="h-4 w-4" />}>
+          {t("classic.note")}
+        </Callout>
+      ) : null}
       <Card>
         <CardHeader
           icon={isSim ? <FlaskConical className="h-4 w-4" /> : <Cable className="h-4 w-4" />}
-          title={isSim ? "Simulation mode" : light.mode === "bridge" ? "Live KNX via SE7ENX Bridge" : "Live KNX via Home Assistant"}
-          subtitle={
-            isSim
-              ? "The lamp is simulated in your browser. No real light is controlled."
-              : light.link.message ?? "Connected backend"
-          }
+          title={isSim ? t("classic.simTitle") : light.mode === "bridge" ? t("classic.bridgeTitle") : t("classic.haTitle")}
+          subtitle={isSim ? t("classic.simSub") : (light.link.message ?? t("classic.connectedBackend"))}
         />
         <div className="space-y-4 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
-          {!isSim && t ? (
+          {!isSim && target ? (
             <dl className="grid grid-cols-2 gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 sm:grid-cols-4">
-              <KeyValue label="Group address" value={t.displayAddress} mono />
-              <KeyValue label="DPT" value={t.dpt} mono />
-              <KeyValue label="Status address" value={t.displayStatusAddress ?? "—"} mono />
-              <KeyValue label="Feedback" value={light.feedbackAvailable ? "Available" : "None"} />
+              <KeyValue label={t("classic.ga")} value={target.displayAddress} mono />
+              <KeyValue label={t("classic.dpt")} value={target.dpt} mono />
+              <KeyValue label={t("classic.statusGa")} value={target.displayStatusAddress ?? "—"} mono />
+              <KeyValue label={t("classic.feedback")} value={light.feedbackAvailable ? t("classic.available") : t("classic.none")} />
             </dl>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button variant={isSim ? "primary" : "outline"} onClick={openWizard}>
               <Cable className="h-4 w-4" aria-hidden />
-              {isSim ? "Connect a real KNX light…" : "Connection settings…"}
+              {isSim ? t("classic.connectReal") : t("classic.settings")}
             </Button>
             {!isSim ? (
               <>
                 <Button variant="secondary" onClick={read} disabled={reading || light.link.status !== "connected"}>
                   <RefreshCw className={reading ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden />
-                  Read state
+                  {t("classic.read")}
                 </Button>
                 <Button
                   variant="ghost"
@@ -81,13 +87,13 @@ export function ControlPanel() {
                   }}
                 >
                   <Unplug className="h-4 w-4" aria-hidden />
-                  Disconnect
+                  {t("classic.disconnect")}
                 </Button>
               </>
             ) : null}
           </div>
           {readError ? (
-            <Callout tone="danger" role="alert" title="Could not read state">
+            <Callout tone="danger" role="alert" title={t("classic.readFailed")}>
               {readError}
             </Callout>
           ) : null}
@@ -95,58 +101,50 @@ export function ControlPanel() {
       </Card>
 
       <Card>
-        <CardHeader
-          icon={<Lightbulb className="h-4 w-4" />}
-          title="Manual control"
-          subtitle={isSim ? "Always available — the reliable fallback for gestures and voice." : "Sends a real KNX telegram to the configured group address."}
-        />
+        <CardHeader icon={<Lightbulb className="h-4 w-4" />} title={t("classic.manual")} subtitle={isSim ? t("classic.manualSimSub") : t("classic.manualRealSub")} />
         <div className="grid grid-cols-2 gap-3 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
           <Button variant="on" size="lg" disabled={!enabled} onClick={() => void requestCommand("on", "manual")} data-testid="manual-on">
             <Lightbulb className="h-5 w-5" aria-hidden />
-            Switch ON
+            {t("classic.on")}
           </Button>
           <Button variant="off" size="lg" disabled={!enabled} onClick={() => void requestCommand("off", "manual")} data-testid="manual-off">
             <LightbulbOff className="h-5 w-5" aria-hidden />
-            Switch OFF
+            {t("classic.off")}
           </Button>
-          {!enabled && !isSim ? (
-            <p className="col-span-2 text-xs text-ink-300">
-              {pending ? "Waiting for the previous command…" : "Controls are disabled until the KNX backend is connected."}
-            </p>
-          ) : null}
+          {!enabled && !isSim ? <p className="col-span-2 text-xs text-ink-300">{pending ? t("classic.waiting") : t("classic.disabled")}</p> : null}
         </div>
       </Card>
 
       <Card>
-        <CardHeader icon={<Hand className="h-4 w-4" />} title="Hands-free control" subtitle="Each input is enabled separately and can be stopped instantly." />
+        <CardHeader icon={<Hand className="h-4 w-4" />} title={t("classic.handsFree")} subtitle={t("classic.handsFreeSub")} />
         <div className="grid gap-2 px-4 pb-4 pt-3 sm:grid-cols-2 sm:px-5 sm:pb-5">
           <button
             type="button"
             onClick={() => setTab("gesture")}
-            className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-left transition-colors hover:border-accent/50"
+            className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-start transition-colors hover:border-accent/50"
           >
             <Hand className="h-5 w-5 text-accent" aria-hidden />
             <span className="min-w-0">
-              <span className="block text-sm font-semibold text-ink-50">Gestures</span>
+              <span className="block text-sm font-semibold text-ink-50">{t("classic.gestures")}</span>
               <span className="block truncate text-xs text-ink-300">
-                {camera === "running" ? (gesturesEnabled ? "Camera on · active" : "Camera on · gestures off") : camera === "error" ? "Camera error" : "Camera off"}
+                {camera === "running" ? (gesturesEnabled ? t("classic.camActive") : t("classic.camGesturesOff")) : camera === "error" ? t("classic.camError") : t("classic.camOff")}
               </span>
             </span>
           </button>
           <button
             type="button"
             onClick={() => setTab("voice")}
-            className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-left transition-colors hover:border-accent/50"
+            className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-start transition-colors hover:border-accent/50"
           >
             <Mic className="h-5 w-5 text-accent" aria-hidden />
             <span className="min-w-0">
-              <span className="block text-sm font-semibold text-ink-50">Voice</span>
-              <span className="block truncate text-xs text-ink-300">{voiceEnabled ? "Enabled · press Listen" : "Off"}</span>
+              <span className="block text-sm font-semibold text-ink-50">{t("classic.voice")}</span>
+              <span className="block truncate text-xs text-ink-300">{voiceEnabled ? t("classic.voiceOn") : t("classic.voiceOff")}</span>
             </span>
           </button>
           {light.dispatchPaused ? (
-            <Callout tone="danger" className="sm:col-span-2" title="Emergency stop active">
-              Gesture and voice commands are blocked. Use “Resume hands-free” in the header to re-enable them.
+            <Callout tone="danger" className="sm:col-span-2" title={t("classic.stopped")}>
+              {t("classic.stoppedBody")}
             </Callout>
           ) : null}
         </div>

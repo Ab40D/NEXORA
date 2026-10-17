@@ -22,24 +22,9 @@ import type { CommandSource } from "@/lib/state/types";
 import { errorCategory, type ErrorCategory } from "./errors";
 
 export type ExperienceCommand =
-  | { kind: "turn_on" }
-  | { kind: "turn_off" }
-  | { kind: "toggle" }
-  | { kind: "set_brightness"; value: number }
-  | { kind: "adjust_brightness"; delta: number };
+  { kind: "turn_on" } | { kind: "turn_off" } | { kind: "toggle" } | { kind: "set_brightness"; value: number } | { kind: "adjust_brightness"; delta: number };
 
-export type ExecState =
-  | "pending"
-  | "executing"
-  | "accepted"
-  | "confirmed"
-  | "simulated"
-  | "already"
-  | "failed"
-  | "timeout"
-  | "unknown"
-  | "offline"
-  | "blocked";
+export type ExecState = "pending" | "executing" | "accepted" | "confirmed" | "simulated" | "already" | "failed" | "timeout" | "unknown" | "offline" | "blocked";
 
 export interface LightLevel {
   on: boolean;
@@ -145,9 +130,7 @@ function levelOf(reported: Record<string, unknown>): LightLevel | null {
 export function snapshotOfDevice(d: HubDevice, safetyActive: boolean): TargetSnapshot {
   const connection = d.connection.status === "online" ? "online" : d.connection.status === "unknown" ? "unknown" : "offline";
   const lastKnown = levelOf(d.state.reported);
-  const reliable =
-    lastKnown !== null &&
-    (d.simulated || (connection === "online" && !d.state.pending && !UNRELIABLE_SOURCES.has(d.state.source ?? "")));
+  const reliable = lastKnown !== null && (d.simulated || (connection === "online" && !d.state.pending && !UNRELIABLE_SOURCES.has(d.state.source ?? "")));
   return {
     kind: "hub",
     id: d.id,

@@ -61,8 +61,9 @@ describe("formatting", () => {
   it("formats percentages with Latin digits and French spacing", () => {
     expect(formatPercent(60, "en")).toBe("60%");
     expect(formatPercent(60.4, "fr")).toBe("60\u202F%");
-    expect(formatPercent(7, "ar")).toBe("7%");
-    expect(formatPercent(7, "dz")).toBe("7%");
+    // right-to-left: isolated so the percent sign stays after the number next to Arabic text
+    expect(formatPercent(7, "ar")).toBe("\u20667%\u2069");
+    expect(stripBidi(formatPercent(7, "dz"))).toBe("7%");
   });
 
   it("detects a first-visit locale from the browser languages", () => {

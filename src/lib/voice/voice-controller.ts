@@ -5,7 +5,9 @@
  * action, is time-limited, and stops on emergency stop / tab hide.
  */
 import { create } from "zustand";
-import { BLOCK_REASON_TEXT } from "@/lib/state/light-machine";
+import { EXEC_KEY } from "@/lib/experience/labels";
+import { useExperience } from "@/lib/experience/store";
+import { t } from "@/lib/i18n";
 import { useSettings } from "@/lib/state/settings";
 import { useAppStore } from "@/lib/state/store";
 import type { OnOff } from "@/lib/state/types";
@@ -46,13 +48,7 @@ export const useVoiceStore = create<VoiceStore>((set) => ({
   set: (p) => set(p),
 }));
 
-const REASON_TEXT: Record<NonNullable<VoiceParseResult["reason"]>, string> = {
-  empty: "Nothing recognized.",
-  "no-match": "Not an allowed command — ignored. Say e.g. “Light on” or “Light off”.",
-  "too-long": "Too long — say just the command.",
-  ambiguous: "Ambiguous recognition (heard both on and off) — nothing executed.",
-  "low-confidence": "Recognition confidence too low — nothing executed. Please repeat.",
-};
+const reasonText = (reason: NonNullable<VoiceParseResult["reason"]>) => t(`voice.reason.${reason}`);
 
 let recognizer: VoiceRecognizer | null = null;
 let restarts = 0;
@@ -64,13 +60,28 @@ async function handleFinal(alts: RecognitionAlternative[]) {
   store.set({ interim: "", lastHeard: { transcript, at: Date.now() } });
   const parsed = resolveAlternatives(alts, languageFamily(lang));
   if (!parsed.command) {
-    store.set({ lastResult: { command: null, status: "ignored", detail: REASON_TEXT[parsed.reason ?? "no-match"], at: Date.now() } });
+    store.set({ lastResult: { command: null, status: "ignored", detail: reasonText(parsed.reason ?? "no-match"), at: Date.now() } });
     return;
   }
-  store.set({ lastResult: { command: parsed.command, status: "pending", detail: "Sending…", at: Date.now() } });
+  store.set({ lastResult: { command: parsed.command, status: "pending", detail: t("voice.sending"), at: Date.now() } });
+  // With a light selected in the Smart Light Experience, voice uses the same pipeline as every input.
+  const xp = useExperience.getState();
+  if (xp.target !== "none") {
+    const exec = await xp.execute({ kind: parsed.command === "on" ? "turn_on" : "turn_off" }, "voice");
+    const status: VoiceResultStatus =
+      exec.state === "confirmed" || exec.state === "simulated" || exec.state === "already"
+        ? "executed"
+        : exec.state === "accepted"
+          ? "pending"
+          : exec.state === "blocked"
+            ? "blocked"
+            : "failed";
+    const detail = t(EXEC_KEY[exec.state]) + (exec.error && exec.state !== "already" ? ` — ${t(`errors.${exec.error}.message`)}` : "");
+    useVoiceStore.getState().set({ lastResult: { command: parsed.command, status, detail, at: Date.now() } });
+    return;
+  }
   const res = await useAppStore.getState().requestCommand(parsed.command, "voice");
-  const detail =
-    res.status === "done" ? res.detail : res.status === "blocked" ? BLOCK_REASON_TEXT[res.reason] : `${res.message}${res.hint ? ` — ${res.hint}` : ""}`;
+  const detail = res.status === "done" ? res.detail : res.status === "blocked" ? t(`block.${res.reason}`) : `${res.message}${res.hint ? ` — ${res.hint}` : ""}`;
   useVoiceStore.getState().set({
     lastResult: { command: parsed.command, status: res.status === "done" ? "executed" : res.status, detail, at: Date.now() },
   });
@@ -173,7 +184,7 @@ export function listenOnce(): void {
   const s = useVoiceStore.getState();
   if (!s.enabled) return;
   if (useAppStore.getState().light.dispatchPaused) {
-    s.set({ lastResult: { command: null, status: "blocked", detail: BLOCK_REASON_TEXT.paused, at: Date.now() } });
+    s.set({ lastResult: { command: null, status: "blocked", detail: t("block.paused"), at: Date.now() } });
     return;
   }
   restarts = 0;
@@ -185,7 +196,7 @@ export function startHandsFree(): void {
   const s = useVoiceStore.getState();
   if (!s.enabled) return;
   if (useAppStore.getState().light.dispatchPaused) {
-    s.set({ lastResult: { command: null, status: "blocked", detail: BLOCK_REASON_TEXT.paused, at: Date.now() } });
+    s.set({ lastResult: { command: null, status: "blocked", detail: t("block.paused"), at: Date.now() } });
     return;
   }
   restarts = 0;

@@ -70,15 +70,16 @@ describe("hub formatting", () => {
   });
 
   it("describes reported state per type without inventing values", () => {
-    expect(describeReported("light", { on: true, brightness: 40 })).toEqual(["On", "40 %"]);
+    expect(describeReported("light", { on: true, brightness: 40 })).toEqual(["On", "40%"]);
+    expect(describeReported("light", { on: true, brightness: 40 }, "fr")).toEqual(["Allumé", "40\u202F%"]);
     expect(describeReported("outlet", { on: true, power: 61.5, energy: 1234.5 })).toEqual(["On", "62 W", "1.23 kWh"]);
-    expect(describeReported("cover", { position: 80, moving: "opening" })).toEqual(["80 % open", "Opening…"]);
+    expect(describeReported("cover", { position: 80, moving: "opening" })).toEqual(["80% open", "Opening…"]);
     expect(describeReported("sensor", { value: 21.5, unit: "°C" })).toEqual(["21.5 °C"]);
     expect(describeReported("light", {})).toEqual([]);
   });
 
   it("describes requested state separately", () => {
-    expect(describeRequested({ brightness: 30 })).toBe("30 %");
+    expect(describeRequested({ brightness: 30 })).toBe("30%");
     expect(describeRequested({ on: false })).toBe("Off");
     expect(describeRequested(null)).toBeNull();
   });
@@ -89,5 +90,6 @@ describe("hub formatting", () => {
     expect(relativeTime("2026-10-17T10:00:58Z", now)).toBe("just now");
     expect(relativeTime("2026-10-17T10:00:30Z", now)).toBe("30 s ago");
     expect(relativeTime("2026-10-17T09:51:00Z", now)).toBe("10 min ago");
+    expect(relativeTime("2026-10-17T10:00:30Z", now, "dz")).toBe("هادي \u206830\u2069 ث");
   });
 });

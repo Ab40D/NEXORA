@@ -13,7 +13,9 @@ import { stopCamera, useGestureStore } from "@/lib/gesture/gesture-store";
 import type { HandObservation } from "@/lib/gesture/hand-features";
 import { getHandTracker } from "@/lib/gesture/hand-tracker";
 import { detectLowPower } from "@/lib/device";
-import { BLOCK_REASON_TEXT } from "@/lib/state/light-machine";
+import { EXEC_VIEW } from "@/components/experience/exec-view";
+import { useExperience } from "@/lib/experience/store";
+import { t, useT } from "@/lib/i18n";
 import { useSettings } from "@/lib/state/settings";
 import { useAppStore } from "@/lib/state/store";
 import type { OnOff } from "@/lib/state/types";
@@ -22,21 +24,32 @@ import { cn } from "@/lib/utils";
 const CAL_PREP_MS = 1500;
 const CAL_SAMPLE_MS = 2000;
 
+/**
+ * A recognised gesture is only a request: the message shows what actually happened.
+ * With a light selected in the Smart Light Experience the gesture goes through the same pipeline
+ * as every other input (emergency stop, capability, hub policy); otherwise the legacy path is used.
+ */
 async function dispatchGesture(value: OnOff) {
   const gs = useGestureStore.getState();
   const at = Date.now();
   if (!gs.gesturesEnabled) {
-    gs.set({ lastTrigger: { value, at, ok: false, message: "Gesture recognized, but gesture control is switched off." } });
+    gs.set({ lastTrigger: { value, at, ok: false, message: t("gesture.trigger.disabled") } });
+    return;
+  }
+  const xp = useExperience.getState();
+  if (xp.target !== "none") {
+    const exec = await xp.execute({ kind: value === "on" ? "turn_on" : "turn_off" }, "gesture");
+    const ok = exec.state === "confirmed" || exec.state === "simulated" || exec.state === "already";
+    const message = t(EXEC_VIEW[exec.state].key) + (exec.error && exec.state !== "already" ? ` — ${t(`errors.${exec.error}.message`)}` : "");
+    useGestureStore.getState().set({ lastTrigger: { value, at, ok, message } });
     return;
   }
   const res = await useAppStore.getState().requestCommand(value, "gesture");
   const message =
     res.status === "blocked"
-      ? res.reason === "duplicate"
-        ? `Light is already ${value.toUpperCase()}.`
-        : BLOCK_REASON_TEXT[res.reason]
+      ? t(`block.${res.reason}`)
       : res.status === "failed"
-        ? `Failed: ${res.message}`
+        ? t("gesture.trigger.failed", { reason: res.message })
         : res.detail;
   useGestureStore.getState().set({ lastTrigger: { value, at, ok: res.status === "done", message } });
 }
@@ -45,6 +58,7 @@ export function CameraRuntime() {
   const stream = useGestureStore((s) => s.stream);
   const cameraStatus = useGestureStore((s) => s.cameraStatus);
   const previewLarge = useGestureStore((s) => s.previewLarge);
+  const { t: tr } = useT();
   const update = useGestureStore((s) => s.update);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -111,7 +125,7 @@ export function CameraRuntime() {
           cameraStatus: "error",
           error: {
             code: "model",
-            message: `The hand-tracking model could not be loaded (${err instanceof Error ? err.message : "unknown error"}). Check your connection and try again.`,
+            message: t("gesture.overlay.modelError", { error: err instanceof Error ? err.message : "?" }),
           },
         });
         return;
@@ -177,11 +191,11 @@ export function CameraRuntime() {
                   calibration: {
                     phase: "done",
                     progress: 1,
-                    message: `Calibrated: ON above ${Math.round(r.onThreshold * 100)}%, OFF below ${Math.round(r.offThreshold * 100)}% of frame height.`,
+                    message: t("gesture.cal.done", { on: `${Math.round(r.onThreshold * 100)}%`, off: `${Math.round(r.offThreshold * 100)}%` }),
                   },
                 });
               } else {
-                gs.set({ calibration: { phase: "failed", progress: 0, message: r.reason } });
+                gs.set({ calibration: { phase: "failed", progress: 0, message: t(`gesture.cal.${r.code}`) } });
               }
             } else gs.set({ calibration: { phase, message: null, progress: elapsed / CAL_SAMPLE_MS } });
           }
@@ -254,12 +268,12 @@ export function CameraRuntime() {
 
   const statusText =
     cameraStatus === "loading-model"
-      ? "Loading hand tracking…"
+      ? tr("gesture.overlay.loading")
       : cameraStatus === "starting"
-        ? "Starting camera…"
+        ? tr("gesture.overlay.starting")
         : update
-          ? GESTURE_STATUS_TEXT[update.status]
-          : "Show your open hand";
+          ? tr(`gesture.status.${update.status}`)
+          : tr("gesture.showHand");
 
   return (
     <div
@@ -269,7 +283,7 @@ export function CameraRuntime() {
       )}
     >
       <div className="relative aspect-[4/3]">
-        <video ref={videoRef} className="absolute inset-0 h-full w-full -scale-x-100 object-cover opacity-80" muted playsInline aria-label="Camera preview (processed locally, not uploaded)" />
+        <video ref={videoRef} className="absolute inset-0 h-full w-full -scale-x-100 object-cover opacity-80" muted playsInline aria-label={tr("gesture.overlay.preview")} />
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />
         {cameraStatus !== "running" ? (
           <div className="absolute inset-0 grid place-items-center bg-ink-950/70 text-xs text-ink-200">{statusText}</div>
@@ -277,14 +291,14 @@ export function CameraRuntime() {
         <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-1 bg-gradient-to-b from-ink-950/90 to-transparent px-2 py-1.5">
           <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-100">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden />
-            Local only
+            {tr("gesture.overlay.localOnly")}
           </span>
           <div className="flex gap-1">
             <button
               type="button"
               onClick={() => useGestureStore.getState().set({ previewLarge: !previewLarge })}
               className="grid h-6 w-6 place-items-center rounded-md bg-ink-800/80 text-ink-100 hover:bg-ink-700"
-              aria-label={previewLarge ? "Shrink camera preview" : "Enlarge camera preview"}
+              aria-label={previewLarge ? tr("gesture.overlay.shrink") : tr("gesture.overlay.enlarge")}
             >
               {previewLarge ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             </button>
@@ -292,7 +306,7 @@ export function CameraRuntime() {
               type="button"
               onClick={stopCamera}
               className="grid h-6 w-6 place-items-center rounded-md bg-ink-800/80 text-ink-100 hover:bg-danger/40"
-              aria-label="Turn camera off"
+              aria-label={tr("gesture.overlay.off")}
             >
               <VideoOff className="h-3.5 w-3.5" />
             </button>
@@ -305,14 +319,3 @@ export function CameraRuntime() {
     </div>
   );
 }
-
-export const GESTURE_STATUS_TEXT: Record<GestureUpdate["status"], string> = {
-  "no-hand": "No hand detected",
-  "low-confidence": "Tracking uncertain — move closer, improve lighting",
-  "not-open": "Open your hand fully",
-  neutral: "Raise above ON line or lower below OFF line",
-  "arming-on": "Hold… switching ON",
-  "arming-off": "Hold… switching OFF",
-  holding: "Done — move hand away to re-arm",
-  cooldown: "Cooldown…",
-};

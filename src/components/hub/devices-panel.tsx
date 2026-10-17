@@ -7,8 +7,9 @@ import { Badge, Callout, Card, CardHeader, Input, Label } from "@/components/ui/
 import { describeError } from "@/lib/adapters/types";
 import { useNow } from "@/lib/device";
 import type { IntegrationStatus } from "@/lib/hub/contract";
-import { INTEGRATION_LABEL, relativeTime } from "@/lib/hub/format";
+import { relativeTime } from "@/lib/hub/format";
 import { APPLIANCE, hubClient, useHub } from "@/lib/hub/hub-store";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { useUi } from "@/lib/state/ui-store";
 import { AddDeviceDialog } from "./add-device-dialog";
 import { DeviceCard } from "./device-card";
@@ -23,15 +24,8 @@ const STATE_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
   not_configured: "neutral",
 };
 
-const STATE_LABEL: Record<string, string> = {
-  connected: "connected",
-  connecting: "connecting",
-  degraded: "degraded",
-  disconnected: "offline",
-  auth_failed: "token rejected",
-  error: "error",
-  not_configured: "not set up",
-};
+const KNOWN_STATES = new Set(["connected", "connecting", "degraded", "disconnected", "auth_failed", "error", "not_configured"]);
+const INTEGRATIONS = new Set(["simulated", "shelly", "homeassistant", "knx"]);
 
 function clientName(): string {
   if (typeof navigator === "undefined") return "SE7ENX web";
@@ -40,7 +34,8 @@ function clientName(): string {
   return `SE7ENX web · ${browser}`;
 }
 
-function PairCard() {
+export function PairCard() {
+  const { t } = useT();
   const pair = useHub((s) => s.pair);
   const error = useHub((s) => s.error);
   const openWizard = useUi((s) => s.openWizard);
@@ -50,15 +45,12 @@ function PairCard() {
   if (!APPLIANCE) {
     return (
       <Card>
-        <CardHeader title="Devices" subtitle="Home Assistant, Shelly and KNX devices managed by a SE7ENX hub" icon={<Boxes className="h-4 w-4" />} />
+        <CardHeader title={t("hub.panel.title")} subtitle={t("hub.panel.subtitleNoHub")} icon={<Boxes className="h-4 w-4" />} />
         <div className="space-y-3 p-4 pt-0 text-sm text-ink-200">
-          <p>
-            Pair this browser with a SE7ENX hub (the local SE7ENX bridge, version 1.1 or later) using <strong>Connect KNX → Local KNX Bridge</strong>, then come
-            back here.
-          </p>
+          <p>{t("hub.panel.pairInfo")}</p>
           {error ? <p className="text-xs text-warn">{error.message}</p> : null}
           <Button variant="secondary" size="sm" onClick={openWizard}>
-            Connect a hub
+            {t("hub.panel.connectHub")}
           </Button>
         </div>
       </Card>
@@ -66,7 +58,7 @@ function PairCard() {
   }
   return (
     <Card>
-      <CardHeader title="Pair with this SE7ENX hub" subtitle="One-time code shown in the hub's log" icon={<ShieldCheck className="h-4 w-4" />} />
+      <CardHeader title={t("hub.panel.pairTitle")} subtitle={t("hub.panel.pairSubtitle")} icon={<ShieldCheck className="h-4 w-4" />} />
       <form
         className="space-y-3 p-4 pt-0"
         onSubmit={(e) => {
@@ -78,16 +70,14 @@ function PairCard() {
             .finally(() => setBusy(false));
         }}
       >
-        <p className="text-xs text-ink-300">
-          Run <code className="rounded bg-ink-800 px-1">docker compose logs se7enx</code> on the hub machine and enter the pairing code.
-        </p>
+        <p className="text-xs text-ink-300">{t("hub.panel.pairHelp", { command: "docker compose logs se7enx" })}</p>
         <div className="space-y-1">
-          <Label htmlFor="hub-code">Pairing code</Label>
-          <Input id="hub-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ABCD-EFGH" autoComplete="one-time-code" />
+          <Label htmlFor="hub-code">{t("hub.panel.pairCode")}</Label>
+          <Input id="hub-code" dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ABCD-EFGH" autoComplete="one-time-code" />
         </div>
         {err || error ? <p className="text-xs text-danger">{err ?? error?.message}</p> : null}
         <Button type="submit" variant="primary" size="sm" disabled={busy || code.replace(/[^A-Za-z0-9]/g, "").length < 4}>
-          Pair
+          {t("hub.panel.pair")}
         </Button>
       </form>
     </Card>
@@ -95,17 +85,18 @@ function PairCard() {
 }
 
 function IntegrationChip({ i, now }: { i: IntegrationStatus; now: number }) {
-  const label = INTEGRATION_LABEL[i.name as keyof typeof INTEGRATION_LABEL] ?? i.name;
+  const { t, locale } = useT();
+  const label = INTEGRATIONS.has(i.name) ? t(`hub.integration.${i.name}` as MessageKey) : i.name;
   return (
     <li className="rounded-xl border border-ink-700 px-3 py-2 text-xs" title={i.lastError?.message ?? i.detail}>
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-medium text-ink-100">{label}</span>
         <Badge tone={STATE_TONE[i.state] ?? "neutral"} dot className="shrink-0 whitespace-nowrap">
-          {STATE_LABEL[i.state] ?? i.state}
+          {KNOWN_STATES.has(i.state) ? t(`hub.panel.state.${i.state}` as MessageKey) : i.state}
         </Badge>
       </div>
       <p className="mt-1 truncate text-ink-400">{i.detail}</p>
-      <p className="text-ink-400">Last success: {relativeTime(i.lastSuccessAt, now)}</p>
+      <p className="text-ink-400">{t("hub.panel.lastSuccess", { time: relativeTime(i.lastSuccessAt, now, locale) })}</p>
       {i.lastError && i.state !== "connected" ? <p className="truncate text-danger">{i.lastError.message}</p> : null}
     </li>
   );
@@ -113,6 +104,7 @@ function IntegrationChip({ i, now }: { i: IntegrationStatus; now: number }) {
 
 export function DevicesPanel() {
   const { status, error, order, devices, integrations, persistent, safety, connect, setSafety } = useHub();
+  const { t } = useT();
   const now = useNow(5000);
   const [adding, setAdding] = useState(false);
   const [safetyErr, setSafetyErr] = useState<string | null>(null);
@@ -128,17 +120,17 @@ export function DevicesPanel() {
   if (status === "idle" || status === "connecting") {
     return (
       <Card>
-        <p className="p-4 text-sm text-ink-300">Connecting to the SE7ENX hub…</p>
+        <p className="p-4 text-sm text-ink-300">{t("hub.panel.connecting")}</p>
       </Card>
     );
   }
   if (status === "error" || status === "unsupported") {
     return (
-      <Callout tone="danger" title="Cannot load devices" role="alert">
+      <Callout tone="danger" title={t("hub.panel.cannotLoad")} role="alert">
         {error?.message}
         {error?.hint ? <span className="block text-xs">{error.hint}</span> : null}
         <Button className="mt-2" variant="secondary" size="sm" onClick={() => void connect()}>
-          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> {t("hub.panel.retry")}
         </Button>
       </Callout>
     );
@@ -158,16 +150,16 @@ export function DevicesPanel() {
     <div className="space-y-4" data-testid="devices-panel">
       <Card>
         <CardHeader
-          title="Devices"
-          subtitle={`${list.length} device${list.length === 1 ? "" : "s"} · ${realCount} real`}
+          title={t("hub.panel.title")}
+          subtitle={t("hub.panel.count", { count: list.length, real: realCount })}
           icon={<Boxes className="h-4 w-4" />}
           actions={
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
-                <Plus className="h-3.5 w-3.5" aria-hidden /> Add device
+                <Plus className="h-3.5 w-3.5" aria-hidden /> {t("hub.panel.add")}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => void exportConfig()} aria-label="Export configuration (without credentials)">
-                <Download className="h-3.5 w-3.5" aria-hidden /> Export
+              <Button variant="ghost" size="sm" onClick={() => void exportConfig()} aria-label={t("hub.panel.exportAria")}>
+                <Download className="h-3.5 w-3.5" aria-hidden /> {t("hub.panel.export")}
               </Button>
             </div>
           }
@@ -176,9 +168,9 @@ export function DevicesPanel() {
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-700 p-3">
             <p className="text-xs text-ink-300">
               {safety.active ? (
-                <span className="text-danger">Hub emergency stop active{safety.by ? ` (by ${safety.by})` : ""}: real devices are blocked for every client.</span>
+                <span className="text-danger">{safety.by ? t("hub.panel.hubStopActiveBy", { by: safety.by }) : t("hub.panel.hubStopActive")}</span>
               ) : (
-                "Hub emergency stop: blocks real-device commands from every client and browser."
+                t("hub.panel.hubStopInfo")
               )}
             </p>
             <Button
@@ -191,12 +183,12 @@ export function DevicesPanel() {
               }
               data-testid="hub-safety"
             >
-              <OctagonX className="h-3.5 w-3.5" aria-hidden /> {safety.active ? "Resume control" : "Stop all devices"}
+              <OctagonX className="h-3.5 w-3.5" aria-hidden /> {safety.active ? t("hub.panel.resume") : t("hub.panel.stopAll")}
             </Button>
           </div>
           {safetyErr ? <p className="text-xs text-danger">{safetyErr}</p> : null}
-          {!persistent ? <Callout tone="warn">The hub has no data directory: device configuration will be lost when it restarts.</Callout> : null}
-          <ul className="grid gap-2 sm:grid-cols-2" aria-label="Integrations">
+          {!persistent ? <Callout tone="warn">{t("hub.panel.noData")}</Callout> : null}
+          <ul className="grid gap-2 sm:grid-cols-2" aria-label={t("hub.panel.integrations")}>
             {integrations.map((i) => (
               <IntegrationChip key={i.name} i={i} now={now} />
             ))}
@@ -205,7 +197,7 @@ export function DevicesPanel() {
       </Card>
       {list.length === 0 ? (
         <Card>
-          <p className="p-4 text-sm text-ink-300">No devices yet. Use “Add device” to connect a Shelly, Home Assistant entity, KNX group addresses or a simulated device.</p>
+          <p className="p-4 text-sm text-ink-300">{t("hub.panel.empty")}</p>
         </Card>
       ) : (
         <div className="grid gap-3">{list.map((d) => (d ? <DeviceCard key={d.id} device={d} now={now} /> : null))}</div>

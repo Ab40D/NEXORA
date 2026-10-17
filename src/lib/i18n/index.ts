@@ -8,17 +8,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import {
-  formatPercent,
-  interpolate,
-  isLocale,
-  LOCALE_META,
-  lookup,
-  type Locale,
-  type MessageKey,
-  type Messages,
-  type Vars,
-} from "./core";
+import { formatPercent, interpolate, isLocale, LOCALE_META, lookup, type Locale, type MessageKey, type Messages, type Vars } from "./core";
 import { ar } from "./messages/ar";
 import { dz } from "./messages/dz";
 import { en } from "./messages/en";
@@ -78,6 +68,23 @@ export function t(key: MessageKey, vars?: Vars, locale: Locale = useI18n.getStat
   return translate(locale, key, vars);
 }
 
+/** Intl tags with Latin digits forced (also for Arabic) — the app always shows 0-9. */
+const INTL_TAG: Record<Locale, string> = { en: "en", fr: "fr", ar: "ar-u-nu-latn", dz: "ar-DZ-u-nu-latn" };
+
+export function formatClock(ms: number, locale: Locale): string {
+  return new Date(ms).toLocaleTimeString(INTL_TAG[locale], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+/** "just now" / "12 s ago" / "3 min ago", then a clock time — from the dictionary (Darija included). */
+export function formatAgo(ms: number, now: number, locale: Locale): string {
+  const s = Math.max(0, Math.round((now - ms) / 1000));
+  if (s < 5) return translate(locale, "time.now");
+  if (s < 60) return translate(locale, "time.seconds", { n: s });
+  const m = Math.round(s / 60);
+  if (m < 60) return translate(locale, "time.minutes", { n: m });
+  return formatClock(ms, locale);
+}
+
 export function useT() {
   const locale = useI18n((s) => s.locale);
   const meta = LOCALE_META[locale];
@@ -86,6 +93,8 @@ export function useT() {
     dir: meta.dir,
     t: (key: MessageKey, vars?: Vars) => translate(locale, key, vars),
     pct: (value: number) => formatPercent(value, locale),
+    ago: (ms: number, now: number) => formatAgo(ms, now, locale),
+    clock: (ms: number) => formatClock(ms, locale),
   };
 }
 

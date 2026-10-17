@@ -196,9 +196,7 @@ export const useConversation = create<ConversationStore>()((set, get) => {
             else {
               const exec = await useExperience.getState().execute(cmd, "assistant");
               state = exec.state;
-              reply = executionReply(cmd, exec, currentTarget() ?? target, pct, (category) =>
-                translate(lang, `errors.${category}.message`),
-              );
+              reply = executionReply(cmd, exec, currentTarget() ?? target, pct, (category) => translate(lang, `errors.${category}.message`));
             }
           }
         }

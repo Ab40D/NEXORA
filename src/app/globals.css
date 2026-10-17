@@ -101,6 +101,30 @@ body {
   );
 }
 
+/* Arabic script must never be letter-spaced: tracking breaks the cursive joining of letters.
+   Explicitly left-to-right islands (e.g. the SE7ENX wordmark) keep their spacing. */
+[dir="rtl"] [class*="tracking-"]:not([dir="ltr"], [dir="ltr"] *) {
+  letter-spacing: normal;
+}
+
+/* Welcome intro: soft light reflections sweeping across the dark background */
+.intro-sheen {
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgb(56 217 245 / 0.06) 44%,
+    rgb(255 214 170 / 0.08) 50%,
+    rgb(79 140 255 / 0.05) 56%,
+    transparent 70%
+  );
+  background-size: 260% 100%;
+  animation: intro-sheen 5s ease-in-out infinite;
+}
+@keyframes intro-sheen {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+
 .text-balance {
   text-wrap: balance;
 }

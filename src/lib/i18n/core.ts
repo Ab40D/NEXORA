@@ -72,10 +72,15 @@ export function interpolate(template: string, vars: Vars | undefined, dir: "ltr"
   });
 }
 
-/** "60%" (en), "60 %" (fr, narrow no-break space), "60%" (ar/dz). Always Latin digits. */
+/**
+ * "60%" (en), "60 %" (fr, narrow no-break space), "60%" (ar/dz). Always Latin digits.
+ * In right-to-left locales the value is wrapped in a left-to-right isolate: after Arabic letters the
+ * bidi algorithm would otherwise display "50%" as "%50".
+ */
 export function formatPercent(value: number, locale: Locale): string {
   const n = Math.round(value);
-  return locale === "fr" ? `${n}\u202F%` : `${n}%`;
+  if (locale === "fr") return `${n}\u202F%`;
+  return LOCALE_META[locale].dir === "rtl" ? `\u2066${n}%\u2069` : `${n}%`;
 }
 
 /** Remove bidi isolates (used by tests and when sending text to speech synthesis). */
