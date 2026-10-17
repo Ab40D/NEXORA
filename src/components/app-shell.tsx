@@ -1,8 +1,9 @@
 "use client";
 
-import { History, Mic, SlidersHorizontal, Hand } from "lucide-react";
+import { Boxes, History, Mic, SlidersHorizontal, Hand } from "lucide-react";
 import { useEffect } from "react";
 import { Header } from "@/components/header";
+import { DevicesPanel } from "@/components/hub/devices-panel";
 import { LampStage } from "@/components/lamp/lamp-stage";
 import { ControlPanel } from "@/components/panels/control-panel";
 import { GesturePanel } from "@/components/panels/gesture-panel";
@@ -79,6 +80,10 @@ export function AppShell() {
                 <Mic className="h-4 w-4" aria-hidden />
                 Voice
               </TabsTrigger>
+              <TabsTrigger value="devices">
+                <Boxes className="h-4 w-4" aria-hidden />
+                Devices
+              </TabsTrigger>
               <TabsTrigger value="history" badge={historyCount ? <span className="font-mono text-[10px] text-ink-400">{Math.min(historyCount, 99)}</span> : null}>
                 <History className="h-4 w-4" aria-hidden />
                 <span className="hidden sm:inline">History</span>
@@ -93,6 +98,9 @@ export function AppShell() {
             </TabsContent>
             <TabsContent value="voice">
               <VoicePanel />
+            </TabsContent>
+            <TabsContent value="devices">
+              <DevicesPanel />
             </TabsContent>
             <TabsContent value="history">
               <HistoryPanel />

@@ -117,6 +117,11 @@ def test_hub_settings_from_env(tmp_path: Path) -> None:
     for env in bad_envs:
         with pytest.raises(ConfigError):
             Settings.from_env(env)
+    # appliance: no cross-origin web apps at all, only valid together with a Host allowlist
+    same_origin = Settings.from_env({"SE7ENX_ALLOWED_ORIGINS": "none", "SE7ENX_ALLOWED_HOSTS": "auto"})
+    assert same_origin.allowed_origins == () and same_origin.allowed_hosts == ("auto",)
+    with pytest.raises(ConfigError):
+        Settings.from_env({"SE7ENX_ALLOWED_ORIGINS": "none"})
     with pytest.raises(ValueError):
         normalize_ha_url("http://user:pw@ha:8123")
 

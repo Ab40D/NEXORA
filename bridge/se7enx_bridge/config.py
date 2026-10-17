@@ -158,7 +158,11 @@ class Settings:
         kwargs["bridge_name"] = (get("BRIDGE_NAME") or d.bridge_name)[:64]
 
         origins = as_list("ALLOWED_ORIGINS")
-        if origins is not None:
+        # "none": no cross-origin web app at all (the appliance serves its UI on the same origin)
+        origins_none = origins is not None and [o.lower() for o in origins] == ["none"]
+        if origins_none:
+            kwargs["allowed_origins"] = ()
+        elif origins is not None:
             norm: list[str] = []
             for o in origins:
                 if o in ("*", "null"):
@@ -287,6 +291,8 @@ class Settings:
                 kwargs["allowed_hosts"] = tuple(dict.fromkeys(validate_host_pattern(h) for h in hosts))
             except HostPatternError as err:
                 raise ConfigError(f"SE7ENX_ALLOWED_HOSTS: {err}") from err
+        if origins_none and kwargs.get("allowed_hosts") is None:
+            raise ConfigError("SE7ENX_ALLOWED_ORIGINS=none requires SE7ENX_ALLOWED_HOSTS (same-origin UI)")
         kwargs["sample_devices"] = as_bool("SAMPLE_DEVICES", d.sample_devices)
         ha_url = get("HA_URL")
         if ha_url:

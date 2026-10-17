@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "se7enx-bridge"
-version = "1.0.0"
+version = "1.1.0"
 description = "SE7ENX Bridge — authenticated LAN bridge between the SE7ENX Smart Light web app and a KNXnet/IP interface or router (xknx)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,10 +13,12 @@ dependencies = [
   "xknx>=4.0,<5",
   "fastapi>=0.140,<1",
   "uvicorn[standard]>=0.50",
+  "httpx2>=2.13,<3",  # Shelly local HTTP/RPC client (digest SHA-256)
+  "websockets>=13",  # Home Assistant WebSocket client
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9", "httpx2>=2.13", "ruff>=0.17"]
+dev = ["pytest>=9", "ruff>=0.17"]
 
 [project.scripts]
 se7enx-bridge = "se7enx_bridge.__main__:main"

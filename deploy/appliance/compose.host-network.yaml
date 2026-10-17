@@ -1,0 +1,16 @@
+# OPT-IN override: host networking.
+#
+# Only needed for KNX **routing** (multicast 224.0.23.12) and KNX interface **discovery**.
+# KNX tunnelling (UDP with SE7ENX_KNX_ROUTE_BACK=true, or TCP), Shelly and Home Assistant all work
+# with the default bridge network and do NOT need this file.
+#
+#   docker compose -f compose.yaml -f compose.host-network.yaml up -d
+#
+# Security impact: the container shares the host's network stack, and port publishing no longer
+# applies. The hub listens on SE7ENX_HOST: set it to this machine's LAN IP in .env (not 0.0.0.0)
+# and make sure no router forwards that port to the internet.
+
+services:
+  se7enx:
+    network_mode: host
+    ports: !reset []

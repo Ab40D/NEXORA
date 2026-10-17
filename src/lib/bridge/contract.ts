@@ -6,6 +6,7 @@
  * of undefined behaviour.
  */
 import { z } from "zod";
+import { HubEventSchemas } from "@/lib/hub/contract";
 
 export const API_PREFIX = "/api/v1";
 
@@ -162,6 +163,7 @@ export const BridgeEventSchema = z.discriminatedUnion("type", [
     data: z.object({ requestId: z.string(), lightId: z.string(), value: z.enum(["on", "off"]), outcome: z.string() }),
   }),
   z.object({ type: z.literal("ping"), data: z.object({}).passthrough() }),
+  ...HubEventSchemas,
 ]);
 export type BridgeEvent = z.infer<typeof BridgeEventSchema>;
 

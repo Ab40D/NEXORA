@@ -87,6 +87,23 @@ describe("real-mode transitions", () => {
     expect(late.lit).toBe(false); // still shows last REPORTED state
   });
 
+  it("accepts status feedback that arrives before the command response settles (fast actuators)", () => {
+    // The actuator's status telegram can reach the browser over the event stream before the HTTP
+    // response of the command does. That feedback is valid: it was reported after the command was issued.
+    const s = apply(
+      realConnected(true),
+      { type: "STATE_REPORTED", value: "off", via: "status_address", at: 50 },
+      { type: "COMMAND_REQUESTED", id: "c1", value: "on", source: "test", at: 100 },
+      { type: "STATE_REPORTED", value: "on", via: "status_address", at: 130 },
+      { type: "COMMAND_SETTLED", id: "c1", phase: "bus_confirmed", at: 160 },
+    );
+    const v = selectLampView(s, 160 + FEEDBACK_GRACE_MS + 1000);
+    expect(v.feedbackMissing).toBe(false);
+    expect(v.certainty).toBe("confirmed");
+    expect(v.label).toBe("ON");
+    expect(v.detail).toBe("Confirmed by actuator status feedback.");
+  });
+
   it("without feedback, shows the commanded state as UNVERIFIED", () => {
     const s = apply(
       realConnected(false),

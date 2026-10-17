@@ -1,0 +1,216 @@
+"use client";
+
+import { Boxes, Download, OctagonX, Plus, RefreshCw, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge, Callout, Card, CardHeader, Input, Label } from "@/components/ui/primitives";
+import { describeError } from "@/lib/adapters/types";
+import { useNow } from "@/lib/device";
+import type { IntegrationStatus } from "@/lib/hub/contract";
+import { INTEGRATION_LABEL, relativeTime } from "@/lib/hub/format";
+import { APPLIANCE, hubClient, useHub } from "@/lib/hub/hub-store";
+import { useUi } from "@/lib/state/ui-store";
+import { AddDeviceDialog } from "./add-device-dialog";
+import { DeviceCard } from "./device-card";
+
+const STATE_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
+  connected: "ok",
+  connecting: "warn",
+  degraded: "warn",
+  disconnected: "danger",
+  auth_failed: "danger",
+  error: "danger",
+  not_configured: "neutral",
+};
+
+const STATE_LABEL: Record<string, string> = {
+  connected: "connected",
+  connecting: "connecting",
+  degraded: "degraded",
+  disconnected: "offline",
+  auth_failed: "token rejected",
+  error: "error",
+  not_configured: "not set up",
+};
+
+function clientName(): string {
+  if (typeof navigator === "undefined") return "SE7ENX web";
+  const ua = navigator.userAgent;
+  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  return `SE7ENX web · ${browser}`;
+}
+
+function PairCard() {
+  const pair = useHub((s) => s.pair);
+  const error = useHub((s) => s.error);
+  const openWizard = useUi((s) => s.openWizard);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!APPLIANCE) {
+    return (
+      <Card>
+        <CardHeader title="Devices" subtitle="Home Assistant, Shelly and KNX devices managed by a SE7ENX hub" icon={<Boxes className="h-4 w-4" />} />
+        <div className="space-y-3 p-4 pt-0 text-sm text-ink-200">
+          <p>
+            Pair this browser with a SE7ENX hub (the local SE7ENX bridge, version 1.1 or later) using <strong>Connect KNX → Local KNX Bridge</strong>, then come
+            back here.
+          </p>
+          {error ? <p className="text-xs text-warn">{error.message}</p> : null}
+          <Button variant="secondary" size="sm" onClick={openWizard}>
+            Connect a hub
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader title="Pair with this SE7ENX hub" subtitle="One-time code shown in the hub's log" icon={<ShieldCheck className="h-4 w-4" />} />
+      <form
+        className="space-y-3 p-4 pt-0"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setBusy(true);
+          setErr(null);
+          void pair(code.toUpperCase().replace(/[^A-Z0-9]/g, ""), clientName())
+            .catch((x) => setErr(describeError(x).message))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <p className="text-xs text-ink-300">
+          Run <code className="rounded bg-ink-800 px-1">docker compose logs se7enx</code> on the hub machine and enter the pairing code.
+        </p>
+        <div className="space-y-1">
+          <Label htmlFor="hub-code">Pairing code</Label>
+          <Input id="hub-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ABCD-EFGH" autoComplete="one-time-code" />
+        </div>
+        {err || error ? <p className="text-xs text-danger">{err ?? error?.message}</p> : null}
+        <Button type="submit" variant="primary" size="sm" disabled={busy || code.replace(/[^A-Za-z0-9]/g, "").length < 4}>
+          Pair
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+function IntegrationChip({ i, now }: { i: IntegrationStatus; now: number }) {
+  const label = INTEGRATION_LABEL[i.name as keyof typeof INTEGRATION_LABEL] ?? i.name;
+  return (
+    <li className="rounded-xl border border-ink-700 px-3 py-2 text-xs" title={i.lastError?.message ?? i.detail}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-medium text-ink-100">{label}</span>
+        <Badge tone={STATE_TONE[i.state] ?? "neutral"} dot className="shrink-0 whitespace-nowrap">
+          {STATE_LABEL[i.state] ?? i.state}
+        </Badge>
+      </div>
+      <p className="mt-1 truncate text-ink-400">{i.detail}</p>
+      <p className="text-ink-400">Last success: {relativeTime(i.lastSuccessAt, now)}</p>
+      {i.lastError && i.state !== "connected" ? <p className="truncate text-danger">{i.lastError.message}</p> : null}
+    </li>
+  );
+}
+
+export function DevicesPanel() {
+  const { status, error, order, devices, integrations, persistent, safety, connect, setSafety } = useHub();
+  const now = useNow(5000);
+  const [adding, setAdding] = useState(false);
+  const [safetyErr, setSafetyErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status === "idle") void connect();
+  }, [status, connect]);
+
+  const list = useMemo(() => order.map((id) => devices[id]).filter((d) => d && !d.hidden), [order, devices]);
+  const realCount = list.filter((d) => d && !d.simulated).length;
+
+  if (status === "needs_pairing") return <PairCard />;
+  if (status === "idle" || status === "connecting") {
+    return (
+      <Card>
+        <p className="p-4 text-sm text-ink-300">Connecting to the SE7ENX hub…</p>
+      </Card>
+    );
+  }
+  if (status === "error" || status === "unsupported") {
+    return (
+      <Callout tone="danger" title="Cannot load devices" role="alert">
+        {error?.message}
+        {error?.hint ? <span className="block text-xs">{error.hint}</span> : null}
+        <Button className="mt-2" variant="secondary" size="sm" onClick={() => void connect()}>
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry
+        </Button>
+      </Callout>
+    );
+  }
+
+  async function exportConfig() {
+    const data = await hubClient().exportConfig();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `se7enx-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  return (
+    <div className="space-y-4" data-testid="devices-panel">
+      <Card>
+        <CardHeader
+          title="Devices"
+          subtitle={`${list.length} device${list.length === 1 ? "" : "s"} · ${realCount} real`}
+          icon={<Boxes className="h-4 w-4" />}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+                <Plus className="h-3.5 w-3.5" aria-hidden /> Add device
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void exportConfig()} aria-label="Export configuration (without credentials)">
+                <Download className="h-3.5 w-3.5" aria-hidden /> Export
+              </Button>
+            </div>
+          }
+        />
+        <div className="space-y-3 p-4 pt-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-700 p-3">
+            <p className="text-xs text-ink-300">
+              {safety.active ? (
+                <span className="text-danger">Hub emergency stop active{safety.by ? ` (by ${safety.by})` : ""}: real devices are blocked for every client.</span>
+              ) : (
+                "Hub emergency stop: blocks real-device commands from every client and browser."
+              )}
+            </p>
+            <Button
+              variant={safety.active ? "secondary" : "danger"}
+              size="sm"
+              onClick={() =>
+                void setSafety(!safety.active)
+                  .then(() => setSafetyErr(null))
+                  .catch((x) => setSafetyErr(describeError(x).message))
+              }
+              data-testid="hub-safety"
+            >
+              <OctagonX className="h-3.5 w-3.5" aria-hidden /> {safety.active ? "Resume control" : "Stop all devices"}
+            </Button>
+          </div>
+          {safetyErr ? <p className="text-xs text-danger">{safetyErr}</p> : null}
+          {!persistent ? <Callout tone="warn">The hub has no data directory: device configuration will be lost when it restarts.</Callout> : null}
+          <ul className="grid gap-2 sm:grid-cols-2" aria-label="Integrations">
+            {integrations.map((i) => (
+              <IntegrationChip key={i.name} i={i} now={now} />
+            ))}
+          </ul>
+        </div>
+      </Card>
+      {list.length === 0 ? (
+        <Card>
+          <p className="p-4 text-sm text-ink-300">No devices yet. Use “Add device” to connect a Shelly, Home Assistant entity, KNX group addresses or a simulated device.</p>
+        </Card>
+      ) : (
+        <div className="grid gap-3">{list.map((d) => (d ? <DeviceCard key={d.id} device={d} now={now} /> : null))}</div>
+      )}
+      <AddDeviceDialog open={adding} onOpenChange={setAdding} />
+    </div>
+  );
+}

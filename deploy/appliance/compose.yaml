@@ -1,0 +1,56 @@
+# SE7ENX local appliance: web UI + hub API on one port, configuration persisted in a volume.
+#
+#   cp .env.example .env        # optional: adjust settings (no secrets are required to start)
+#   docker compose up -d --build
+#   docker compose logs -f se7enx   # shows the one-time pairing code
+#
+# Then open http://<this-machine's-IP>:8787 (or http://localhost:8787 on the same machine).
+#
+# Security defaults: non-root user, read-only root filesystem, all Linux capabilities dropped,
+# no host networking, no Docker socket, no device access. See docs/LOCAL_DEPLOYMENT.md.
+
+name: se7enx
+
+services:
+  se7enx:
+    image: ${SE7ENX_IMAGE:-se7enx:1.1.0}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SE7ENX_VERSION: ${SE7ENX_VERSION:-1.1.0}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      # Compose-only variables (not read by SE7ENX itself):
+      # SE7ENX_BIND_ADDRESS limits which host interface publishes the UI (e.g. your LAN IP).
+      - "${SE7ENX_BIND_ADDRESS:-0.0.0.0}:${SE7ENX_HTTP_PORT:-8787}:8787"
+    volumes:
+      - se7enx-data:/data
+      # Optional TLS certificate (set SE7ENX_TLS_CERT=/certs/cert.pem, SE7ENX_TLS_KEY=/certs/key.pem):
+      # - ./certs:/certs:ro
+    # Optional: Home Assistant token as a Docker secret (set SE7ENX_HA_TOKEN_FILE=/run/secrets/ha_token)
+    # secrets:
+    #   - ha_token
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  se7enx-data:
+
+# secrets:
+#   ha_token:
+#     file: ./secrets/ha_token

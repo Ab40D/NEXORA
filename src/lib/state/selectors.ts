@@ -106,8 +106,12 @@ export function selectLampView(state: LightState, now: number): LampView {
 
   // connected
   const cmdOk = isSuccess(cmd) && cmd.mode === state.mode ? cmd : null;
+  // A report counts as feedback for the command if it arrived after the command was ISSUED: fast
+  // actuators can report back over the event stream before the command's HTTP response settles it.
+  const issuedAt = cmdOk ? cmdOk.createdAt : 0;
+  // The missing-feedback grace period still runs from the moment the command was confirmed.
   const cmdAt = cmdOk ? cmdOk.settledAt ?? cmdOk.createdAt : 0;
-  const reportIsNewer = repKnown && (!cmdOk || (rep.at as number) >= cmdAt);
+  const reportIsNewer = repKnown && (!cmdOk || (rep.at as number) >= issuedAt);
 
   if (repKnown && (reportIsNewer || state.feedbackAvailable)) {
     const on = rep.value === "on";

@@ -1,0 +1,30 @@
+# Exact runtime versions the SE7ENX hub was tested with (used by the appliance image).
+# Regenerate: python -m venv v && v/bin/pip install . && v/bin/pip freeze --exclude-editable
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+cffi==2.1.1
+click==8.5.0
+cryptography==50.0.2
+fastapi==0.143.3
+h11==0.16.0
+httpcore2==2.13.1
+httptools==0.9.0
+httpx2==2.13.1
+idna==3.20
+ifaddr==0.2.0
+opentelemetry-api==1.45.1
+pycparser==3.11
+pydantic==2.14.1
+pydantic_core==2.50.1
+python-dotenv==1.2.4
+PyYAML==6.0.3
+starlette==1.8.0
+truststore==0.10.5
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.54.0
+uvloop==0.23.0
+watchfiles==1.3.0
+websockets==17.2
+xknx==4.0.0

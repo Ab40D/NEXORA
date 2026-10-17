@@ -40,3 +40,7 @@ venv/
 *.pem
 !bridge/certs/.gitkeep
 .vercel
+
+# Python build artefacts
+bridge/build/
+*.egg-info/

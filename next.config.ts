@@ -53,29 +53,44 @@ const securityHeaders = [
  */
 const devBridgeRewrite = process.env.SE7ENX_DEV_BRIDGE_REWRITE?.trim().replace(/\/+$/, "");
 
+/**
+ * Build targets:
+ * - default (Vercel / `next start`): server build with the headers and optional demo rewrite below.
+ * - SE7ENX_BUILD_TARGET=appliance: static export (`out/`) served by the local SE7ENX hub on the
+ *   same origin as its API. The hub sets the security headers (connect-src 'self'); the
+ *   Vercel-only /api/health route handler is excluded via pageExtensions.
+ */
+const appliance = process.env.SE7ENX_BUILD_TARGET === "appliance";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  async rewrites() {
-    if (!devBridgeRewrite) return [];
-    return [{ source: "/demo-bridge/:path*", destination: `${devBridgeRewrite}/:path*` }];
-  },
+  ...(appliance ? { output: "export" as const, pageExtensions: ["tsx", "jsx"], images: { unoptimized: true } } : {}),
   allowedDevOrigins: process.env.SE7ENX_ALLOWED_DEV_ORIGINS
     ? process.env.SE7ENX_ALLOWED_DEV_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
     : undefined,
-  async headers() {
-    return [
-      { source: "/:path*", headers: securityHeaders },
-      {
-        source: "/mediapipe/:path*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
-      },
-      {
-        source: "/models/:path*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
-      },
-    ];
-  },
+  // Server builds only: a static export cannot apply headers or rewrites (the hub sets the headers).
+  ...(appliance
+    ? {}
+    : {
+        async rewrites() {
+          if (!devBridgeRewrite) return [];
+          return [{ source: "/demo-bridge/:path*", destination: `${devBridgeRewrite}/:path*` }];
+        },
+        async headers() {
+          return [
+            { source: "/:path*", headers: securityHeaders },
+            {
+              source: "/mediapipe/:path*",
+              headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+            },
+            {
+              source: "/models/:path*",
+              headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+            },
+          ];
+        },
+      }),
 };
 
 export default nextConfig;

@@ -932,8 +932,10 @@ export function ConnectionWizard() {
 
 /* =========================================================================== */
 
+const APPLIANCE = process.env.NEXT_PUBLIC_SE7ENX_APPLIANCE === "true";
+
 function ModeStep({ backend, setBackend }: { backend: Backend; setBackend: (b: Backend) => void }) {
-  const options: Array<{ id: Backend; icon: ReactNode; title: string; text: string; needs: string[] }> = [
+  const all: Array<{ id: Backend; icon: ReactNode; title: string; text: string; needs: string[] }> = [
     {
       id: "simulation",
       icon: <FlaskConical className="h-5 w-5" />,
@@ -946,16 +948,25 @@ function ModeStep({ backend, setBackend }: { backend: Backend; setBackend: (b: B
       icon: <Home className="h-5 w-5" />,
       title: "Home Assistant",
       text: "Use your existing Home Assistant KNX integration. You sign in with your Home Assistant account.",
-      needs: ["Home Assistant with the KNX integration configured", "HA reachable over HTTPS from this device", "Admin account recommended for live feedback"],
+      needs: [
+        "Home Assistant with the KNX integration configured",
+        "HA reachable over HTTPS from this device",
+        "Prefer a dedicated non-admin HA user (live bus confirmation needs an admin; tokens stay in this tab's memory only)",
+      ],
     },
     {
       id: "bridge",
       icon: <Router className="h-5 w-5" />,
-      title: "Local KNX Bridge",
-      text: "Run the SE7ENX Bridge (Python, xknx) next to your KNX IP interface or router. Best latency and true bus confirmation.",
+      title: APPLIANCE ? "This SE7ENX hub (KNX)" : "Local KNX Bridge",
+      text: APPLIANCE
+        ? "Use the KNX interface configured on this SE7ENX hub. Home Assistant and Shelly devices are managed in the Devices tab."
+        : "Run the SE7ENX Bridge (Python, xknx) next to your KNX IP interface or router. Best latency and true bus confirmation.",
       needs: ["KNXnet/IP interface or router on your LAN", "SE7ENX Bridge running on a PC / Raspberry Pi in the same network", "This device can reach the bridge (LAN, Tailscale or HTTPS)"],
     },
   ];
+  // In the appliance, Home Assistant runs server-side (Devices tab); the browser OAuth path would put
+  // HA tokens in the browser and is blocked by the appliance CSP (connect-src 'self').
+  const options = APPLIANCE ? all.filter((o) => o.id !== "homeassistant") : all;
   return (
     <RadioGroup.Root value={backend} onValueChange={(v) => setBackend(v as Backend)} className="grid gap-3" aria-label="Connection method">
       {options.map((o) => (

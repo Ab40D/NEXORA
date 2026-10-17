@@ -76,13 +76,23 @@ function cleanCallbackFromUrl(): void {
   history.replaceState(history.state, "", url.pathname + (url.search ? url.search : "") + url.hash);
 }
 
+/**
+ * Home Assistant OAuth tokens are kept IN MEMORY ONLY (never in sessionStorage/localStorage): the
+ * refresh token is long-lived and carries the HA user's full rights (audit SE7-01). A page reload
+ * therefore requires signing in again. For a permanent connection use the hub's server-side
+ * Home Assistant integration, where the browser never sees a token.
+ */
+let memoryTokens: AuthData | null = null;
+
 function saveTokens(data: AuthData | null): void {
-  try {
-    if (data) sessionStorage.setItem(TOKENS_KEY, JSON.stringify(data));
-    else sessionStorage.removeItem(TOKENS_KEY);
-  } catch {
-    /* storage unavailable — tokens stay in memory only */
-  }
+  memoryTokens = data;
+}
+
+// Remove tokens persisted by older versions of SE7ENX.
+try {
+  if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(TOKENS_KEY);
+} catch {
+  /* storage unavailable */
 }
 
 /** Complete the OAuth callback. Throws AdapterError on any mismatch. */
@@ -120,15 +130,9 @@ export async function completeHaLogin<W = unknown>(): Promise<{ auth: Auth; hass
 }
 
 export function loadStoredAuth(hassUrl: string): Auth | null {
-  try {
-    const raw = sessionStorage.getItem(TOKENS_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as AuthData;
-    if (data.hassUrl !== hassUrl.replace(/\/+$/, "")) return null;
-    return new Auth(data, saveTokens);
-  } catch {
-    return null;
-  }
+  const data = memoryTokens;
+  if (!data || data.hassUrl !== hassUrl.replace(/\/+$/, "")) return null;
+  return new Auth(data, saveTokens);
 }
 
 export async function revokeAuth(auth: Auth | null): Promise<void> {

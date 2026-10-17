@@ -50,7 +50,11 @@ export const DEFAULT_GESTURE_SETTINGS: GestureSettings = {
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = { lang: "en-US", preferOnDevice: false, handsFree: false };
 
 export const DEFAULT_CONNECTION_PREFS: ConnectionPrefs = {
-  bridgeUrl: process.env.NEXT_PUBLIC_DEFAULT_BRIDGE_URL || "http://127.0.0.1:8787",
+  // Appliance build: the UI is served by the hub itself, so the hub is this page's origin.
+  bridgeUrl:
+    (process.env.NEXT_PUBLIC_SE7ENX_APPLIANCE === "true" && typeof window !== "undefined" ? window.location.origin : "") ||
+    process.env.NEXT_PUBLIC_DEFAULT_BRIDGE_URL ||
+    "http://127.0.0.1:8787",
   hassUrl: "",
   groupAddress: "0/0/1",
   statusAddress: "",

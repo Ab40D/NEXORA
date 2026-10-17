@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-export type PanelTab = "control" | "gesture" | "voice" | "history";
+export type PanelTab = "control" | "gesture" | "voice" | "history" | "devices";
 
 interface UiStore {
   wizardOpen: boolean;

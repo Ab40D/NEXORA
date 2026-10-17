@@ -1,6 +1,26 @@
 /**
  * Typed client for the SE7ENX Bridge API (contract v1).
  */
+import {
+  DeviceListSchema,
+  HaConfigSchema,
+  HaEntitiesSchema,
+  HaTestSchema,
+  HubCommandResponseSchema,
+  HubDeviceSchema,
+  IntegrationListSchema,
+  SafetySchema,
+  ShellyIdentitySchema,
+  type AddDeviceBody,
+  type DevicePatchBody,
+  type HaConfig,
+  type HaEntity,
+  type HubCommand,
+  type HubCommandResponse,
+  type HubDevice,
+  type Safety,
+  type ShellyIdentity,
+} from "@/lib/hub/contract";
 import type { z } from "zod";
 import { AdapterError } from "@/lib/adapters/types";
 import { fetchWithTimeout, NetworkError } from "@/lib/net/http";
@@ -108,7 +128,7 @@ export class BridgeClient {
   }
 
   private async request<S extends z.ZodTypeAny>(
-    method: "GET" | "POST" | "PUT" | "DELETE",
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     path: string,
     schema: S | null,
     body?: unknown,
@@ -228,6 +248,73 @@ export class BridgeClient {
    * Open the authenticated server-sent event stream with automatic reconnect
    * (exponential backoff) and an idle watchdog. Stops permanently on 401/403.
    */
+  // ------------------------------------------------------------------ hub device API (bridge >= 1.1)
+
+  devices(): Promise<z.infer<typeof DeviceListSchema>> {
+    return this.request("GET", "/devices", DeviceListSchema);
+  }
+
+  addDevice(body: AddDeviceBody): Promise<HubDevice> {
+    return this.request("POST", "/devices", HubDeviceSchema, body, { timeoutMs: 20000 });
+  }
+
+  patchDevice(id: string, patch: DevicePatchBody): Promise<HubDevice> {
+    return this.request("PATCH", `/devices/${encodeURIComponent(id)}`, HubDeviceSchema, patch);
+  }
+
+  async removeDevice(id: string): Promise<void> {
+    await this.request("DELETE", `/devices/${encodeURIComponent(id)}`, null);
+  }
+
+  deviceCommand(
+    id: string,
+    command: HubCommand,
+    params: Record<string, unknown>,
+    requestId: string,
+    source: CommandSource = "manual",
+  ): Promise<HubCommandResponse> {
+    return this.request("POST", `/devices/${encodeURIComponent(id)}/commands`, HubCommandResponseSchema, { command, params, requestId, source }, { timeoutMs: 16000 });
+  }
+
+  refreshDevice(id: string): Promise<HubDevice> {
+    return this.request("POST", `/devices/${encodeURIComponent(id)}/refresh`, HubDeviceSchema, {}, { timeoutMs: 15000 });
+  }
+
+  integrations(): Promise<z.infer<typeof IntegrationListSchema>> {
+    return this.request("GET", "/integrations", IntegrationListSchema);
+  }
+
+  setSafety(active: boolean): Promise<Safety> {
+    return this.request("POST", active ? "/safety/stop" : "/safety/resume", SafetySchema, {});
+  }
+
+  shellyIdentify(host: string, username?: string, password?: string): Promise<ShellyIdentity> {
+    const body: Record<string, string> = { host };
+    if (username) body.username = username;
+    if (password) body.password = password;
+    return this.request("POST", "/integrations/shelly/identify", ShellyIdentitySchema, body, { timeoutMs: 20000 });
+  }
+
+  homeAssistant(): Promise<HaConfig> {
+    return this.request("GET", "/integrations/homeassistant", HaConfigSchema);
+  }
+
+  configureHomeAssistant(url: string, token: string | undefined, verifyTls: boolean): Promise<HaConfig> {
+    return this.request("PUT", "/integrations/homeassistant", HaConfigSchema, { url, verifyTls, ...(token ? { token } : {}) });
+  }
+
+  testHomeAssistant(url: string | undefined, token: string | undefined, verifyTls: boolean): Promise<z.infer<typeof HaTestSchema>> {
+    return this.request("POST", "/integrations/homeassistant/test", HaTestSchema, { verifyTls, ...(url ? { url } : {}), ...(token ? { token } : {}) }, { timeoutMs: 20000 });
+  }
+
+  homeAssistantEntities(): Promise<HaEntity[]> {
+    return this.request("GET", "/integrations/homeassistant/entities", HaEntitiesSchema).then((r) => r.entities);
+  }
+
+  exportConfig(): Promise<unknown> {
+    return this.request("GET", "/config/export", null);
+  }
+
   openEvents(handlers: EventStreamHandlers): EventStreamHandle {
     let closed = false;
     let attempt = 0;

@@ -1,0 +1,26 @@
+# Keep the build context small and free of secrets / local state.
+.git
+**/node_modules
+.next
+out
+coverage
+test-results
+playwright-report
+tsconfig.tsbuildinfo
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+bridge/.venv
+bridge/tests
+bridge/tools
+tests
+audit
+docs
+deploy
+# never send environment files (they may contain secrets) into the build
+**/.env
+**/.env.*
+**/secrets*
+# documentation is not needed in the image (bridge/README.md is: it is the package readme)
+*.md
+!bridge/README.md
