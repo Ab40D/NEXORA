@@ -260,6 +260,14 @@ class SecurityMiddleware:
 # =============================================================================== app state
 
 
+def default_adapter_factories(
+    settings: Settings, store: ConfigStore
+) -> dict[str, Callable[[AdapterCallbacks], DeviceAdapter]]:
+    from .devices.adapters.shelly import ShellyAdapter
+
+    return {"shelly": lambda cb: ShellyAdapter(cb, settings, store)}
+
+
 class BridgeState:
     def __init__(
         self,
@@ -271,7 +279,9 @@ class BridgeState:
         self.knx = knx
         self.broker = EventBroker()
         self.store = ConfigStore(settings.data_dir)
-        self.registry = DeviceRegistry(settings, self.store, self.broker, adapter_factories)
+        factories = default_adapter_factories(settings, self.store)
+        factories.update(adapter_factories or {})
+        self.registry = DeviceRegistry(settings, self.store, self.broker, factories)
         self.policy = GroupAddressPolicy(settings.allowed_group_addresses)
         self.bridge_id = secrets.token_hex(6)
         self.pairing = PairingManager(settings.pairing_code, settings.pairing_ttl_s, on_new_code=self._announce_code)

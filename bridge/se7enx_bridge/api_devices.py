@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 
-from .devices.model import DEVICE_ID_PATTERN, ApiModel, DeviceCommand, DeviceConfig, DevicePatch
+from .devices.model import DEVICE_ID_PATTERN, ApiModel, DeviceCommand, DeviceConfig, DeviceError, DevicePatch
 from .devices.registry import DeviceRegistry
 from .security import Session, SlidingWindowLimiter
 
@@ -28,6 +28,12 @@ class Credentials(ApiModel):
 class AddDeviceRequest(ApiModel):
     device: DeviceConfig
     credentials: Credentials | None = None
+
+
+class ShellyIdentifyRequest(ApiModel):
+    host: str = Field(min_length=1, max_length=253)
+    username: str | None = Field(default=None, min_length=1, max_length=64)
+    password: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 DeviceId = Path(pattern=DEVICE_ID_PATTERN, max_length=48)
@@ -43,6 +49,7 @@ def build_device_router(
     r = APIRouter(prefix="/api/v1")
     config_limiter = SlidingWindowLimiter(30, 60.0)
     read_limiter = SlidingWindowLimiter(20, 10.0)
+    identify_limiter = SlidingWindowLimiter(10, 60.0)
 
     @r.get("/devices")
     async def list_devices(_s: Session = Depends(require_session)) -> dict[str, Any]:
@@ -83,6 +90,18 @@ def build_device_router(
     async def refresh_device(device_id: str = DeviceId, session: Session = Depends(require_session)) -> dict[str, Any]:
         limit(read_limiter, session.id, "refresh requests")
         return await registry.refresh(device_id)
+
+    @r.post("/integrations/shelly/identify")
+    async def shelly_identify(
+        body: ShellyIdentifyRequest, session: Session = Depends(require_session)
+    ) -> dict[str, Any]:
+        """Read model, firmware, generation and channels of ONE explicitly entered device. Nothing is saved."""
+        limit(identify_limiter, session.id, "identify requests")
+        adapter = registry.adapters.get("shelly")
+        identify = getattr(adapter, "identify", None)
+        if identify is None:
+            raise DeviceError("INTEGRATION_UNAVAILABLE", "The Shelly integration is not available.", status=404)
+        return await identify(body.host, body.username, body.password)
 
     @r.get("/integrations")
     async def integrations(_s: Session = Depends(require_session)) -> dict[str, Any]:

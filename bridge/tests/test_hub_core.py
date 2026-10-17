@@ -377,7 +377,7 @@ def test_device_api_simulated_and_policy(tmp_path: Path, caplog: pytest.LogCaptu
 
         # integrations, export, deletion
         names = {i["name"] for i in bc.get("/integrations").json()["integrations"]}
-        assert names == {"simulated", "homeassistant"}
+        assert names == {"simulated", "homeassistant", "shelly"}  # shelly: registered, not configured
         exp = bc.get("/config/export")
         assert "attachment" in exp.headers["content-disposition"] and SECRET not in exp.text
         assert exp.json()["exportedWithoutSecrets"] is True
