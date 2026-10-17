@@ -3,14 +3,21 @@
  * (real bridge + xknx → FAKE KNXnet/IP interface; no hardware involved).
  */
 import { existsSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const BRIDGE = "http://127.0.0.1:8799";
 const hasBridge = existsSync("bridge/.venv/bin/python");
 
-async function openBridgeStep(page: Page) {
+/** The original connection wizard is reachable from the Connect workspace ("legacy" link). */
+async function openLegacyWizard(page: Page) {
   await page.goto("/");
-  await page.getByRole("button", { name: "Connect KNX" }).click();
+  await page.getByTestId("header-connect").click();
+  await page.getByTestId("legacy-wizard").click();
+}
+
+async function openBridgeStep(page: Page) {
+  await openLegacyWizard(page);
   await page.getByTestId("mode-bridge").click();
   await page.getByTestId("wizard-next").click();
 }
@@ -29,8 +36,7 @@ test.describe("wizard validation", () => {
   });
 
   test("Home Assistant path asks for an https URL and offers OAuth sign-in (no token field)", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "Connect KNX" }).click();
+    await openLegacyWizard(page);
     await page.getByTestId("mode-homeassistant").click();
     await page.getByTestId("wizard-next").click();
     await page.getByLabel("Home Assistant URL").fill("https://ha.example.com/lovelace");

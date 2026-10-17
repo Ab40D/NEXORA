@@ -144,7 +144,7 @@ export function VoicePanel() {
                   <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">{t("voice.result")}</p>
                   {v.lastResult ? (
                     <p className={cn("mt-0.5", STATUS_TONE[v.lastResult.status])} data-testid="voice-result">
-                      {v.lastResult.command ? `${t(v.lastResult.command === "on" ? "light.on" : "light.off")} · ` : ""}
+                      {v.lastResult.command ? `${t(v.lastResult.command === "on" ? "lamp.legacyOn" : "lamp.legacyOff")} · ` : ""}
                       {t(`voice.status.${v.lastResult.status}`)}: {v.lastResult.detail}
                     </p>
                   ) : (

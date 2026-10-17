@@ -508,8 +508,8 @@ export const en = {
     result: "Result",
     sending: "Sending…",
     status: {
-      executed: "done",
-      pending: "sending",
+      executed: "executed",
+      pending: "pending",
       blocked: "blocked",
       failed: "failed",
       ignored: "ignored",

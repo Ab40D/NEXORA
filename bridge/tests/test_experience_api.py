@@ -152,6 +152,22 @@ def test_already_satisfied_is_never_resent(tmp_path: Path) -> None:
         client.__exit__(None, None, None)
 
 
+def test_assistant_source_is_accepted_and_still_obeys_the_safety_stop(tmp_path: Path) -> None:
+    client, bc, holder = _hub(tmp_path)
+    try:
+        body = {"command": "turn_on", "params": {}, "requestId": f"t{next(_seq)}", "source": "assistant"}
+        r = bc.post("/devices/kitchen/commands", body)
+        assert r.status_code == 200, r.text
+        assert r.json()["outcome"] == "confirmed"
+        assert bc.post("/safety/stop").status_code == 200
+        r = bc.post("/devices/kitchen/commands", {**body, "command": "turn_off", "requestId": f"t{next(_seq)}"})
+        assert r.status_code == 423
+        assert [c for c, _ in holder["a"].calls] == ["turn_on"]  # nothing sent while stopped
+        assert bc.post("/safety/resume").status_code == 200
+    finally:
+        client.__exit__(None, None, None)
+
+
 def test_adjust_brightness_resolves_against_reliable_state(tmp_path: Path) -> None:
     client, bc, holder = _hub(tmp_path)
     try:

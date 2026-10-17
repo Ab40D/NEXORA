@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "../e2e/fixtures";
 
 const CODE = process.env.APPLIANCE_PAIRING_CODE ?? "";
 
@@ -33,7 +34,7 @@ test("appliance: pair, control simulated devices, add/remove, hub emergency stop
   // one command when the slider is committed (keyboard: End = 100 %)
   await light.getByRole("slider", { name: "Brightness (absolute)" }).focus();
   await page.keyboard.press("End");
-  await expect(light).toContainText("100 %");
+  await expect(light).toContainText("100%");
 
   // add a simulated device through the dialog
   await page.getByRole("button", { name: "Add device" }).click();
@@ -61,9 +62,56 @@ test("appliance: pair, control simulated devices, add/remove, hub emergency stop
   await expect(fan).toHaveCount(0);
 
   // appliance wizard: no browser-side Home Assistant mode (HA runs server-side in the hub)
-  await page.getByRole("button", { name: /Connect KNX/ }).first().click();
+  await page.getByTestId("header-connect").click();
+  await page.getByTestId("legacy-wizard").click();
   await expect(page.getByTestId("mode-bridge")).toContainText("This SE7ENX hub (KNX)");
   await expect(page.getByTestId("mode-homeassistant")).toHaveCount(0);
 
   expect(offOrigin, "the appliance UI must not contact any other origin").toEqual([]);
+});
+
+async function pairFromWorkspace(page: Page) {
+  await page.goto("/");
+  await page.getByTestId("header-connect").click();
+  await expect(page.getByText("Pair with this SE7ENX hub")).toBeVisible();
+  await page.getByLabel("Pairing code").fill(CODE);
+  await page.getByRole("button", { name: "Pair", exact: true }).click();
+  await expect(page.getByTestId("hub-ready")).toBeVisible();
+}
+
+async function chat(page: Page, text: string) {
+  const replies = page.locator('[data-testid="chat-log"] [data-role="assistant"]');
+  const before = await replies.count();
+  await page.getByTestId("chat-input").fill(text);
+  await page.getByTestId("chat-send").click();
+  await expect(replies).toHaveCount(before + 1);
+  return replies.last();
+}
+
+test("appliance: Smart Light Experience drives hub devices through the hub pipeline", async ({ page }) => {
+  test.skip(!CODE, "APPLIANCE_PAIRING_CODE not set");
+  await pairFromWorkspace(page);
+  await expect(page.getByTestId("provider-shelly")).toBeVisible();
+
+  // on/off-only device: no brightness slider is rendered and dimming requests are refused
+  await page.getByTestId("use-sim-desk-outlet").click();
+  await expect(page.getByTestId("experience-panel")).toBeVisible();
+  await expect(page.getByTestId("hw-badge")).toHaveText("SIMULATION"); // hub-simulated device, labelled honestly
+  await expect(page.getByTestId("not-dimmable")).toBeVisible();
+  await expect(page.getByTestId("brightness-control")).toHaveCount(0);
+  await expect(await chat(page, "Set the brightness to 50%")).toContainText("can't be dimmed");
+
+  // dimmable device: absolute + relative dimming resolved by the hub, "already" decided by the hub
+  await page.getByTestId("xp-change").click();
+  await page.getByTestId("use-sim-living-light").click();
+  await page.getByTestId("preset-50").click();
+  await expect(page.getByTestId("brightness-confirmed")).toHaveText("Confirmed 50%");
+  await expect(await chat(page, "Increase brightness by 10%")).toContainText("Brightness set to 60% (simulation).");
+  await expect(page.getByTestId("brightness-confirmed")).toHaveText("Confirmed 60%");
+  await page.waitForTimeout(400); // hub per-device minimum interval
+  await expect(await chat(page, "Turn on the light")).toContainText("The light is already on.");
+  await expect(page.getByTestId("exec-status")).toHaveAttribute("data-state", "already");
+  await page.waitForTimeout(400);
+  await expect(await chat(page, "طفّي الضو")).toContainText("الضو راهو طافي (سيمولاسيون).");
+  await expect(page.getByTestId("lamp-label")).toContainText("Off");
 });

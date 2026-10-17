@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 /** Deterministic stand-in for the browser speech service. */
 async function installFakeSpeech(page: Page) {

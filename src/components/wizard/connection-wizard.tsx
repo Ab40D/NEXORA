@@ -911,6 +911,8 @@ export function ConnectionWizard() {
                   onClick={() => {
                     closeWizard();
                     setStep("mode");
+                    // the light configured here is operated from the "Classic" tab
+                    useUi.getState().setTab("control");
                   }}
                 >
                   <Check className="h-4 w-4" aria-hidden />
