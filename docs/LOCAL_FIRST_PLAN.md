@@ -105,3 +105,33 @@ remote-access relay, and deduplication beyond configurable linking/hiding.
 | SSRF through "device IP" fields | Shelly hosts must resolve to private/link-local addresses; HA URL scheme restricted; no network scanning |
 | Container privilege creep | Non-root, read-only rootfs, `cap_drop: ALL`, no Docker socket; host networking only via an opt-in override |
 | Claims without hardware | Fakes are labelled as fakes; the hardware test matrix lists what still needs physical Shelly/KNX/HA validation |
+
+---
+
+## 5. Progress (release 1.1.0, 2026-10-17)
+
+| Stage | Result | Evidence |
+| --- | --- | --- |
+| 1. Hub core | ✅ Device model, store (config/secrets), registry policy, simulated adapter, device/integration/safety/export API, Host allowlist, static UI | `bridge/tests/test_hub_core.py` |
+| 2. Shelly | ✅ Gen1 HTTP + Gen2+ RPC, digest/basic auth, identification, capability detection, polling, manual add | `bridge/tests/test_shelly.py` (fake devices) |
+| 3. Home Assistant | ✅ Server-side WebSocket client, reconnect, no retry on rejected token, entity allowlist, confirmation | `bridge/tests/test_homeassistant.py` (fake HA, real sockets) |
+| 4. KNX mapping | ✅ Switch, light (5.001 + 3.007), cover (1.008/stop/5.001), sensors on the existing xknx link | `bridge/tests/test_knx_devices.py` (real xknx ↔ fake interface) |
+| 5. Appliance | ✅ Dockerfile, Compose, health check, read-only non-root container, volume, backup/restore, upgrade/rollback docs | Docker build + Compose tests (see `docs/LOCAL_DEPLOYMENT.md`) |
+| 6. UI | ✅ Devices tab, add flows, integration status, real-control acknowledgement, hub emergency stop | `tests/unit/hub.test.ts`, `tests/e2e-appliance/devices.spec.ts` |
+| 7. Docs | ✅ `docs/LOCAL_DEPLOYMENT.md`, `docs/HARDWARE_TEST_MATRIX.md`, device API in `docs/API.md`, security status | — |
+
+Test totals at release: pytest 124, Vitest 194, Playwright 24 passed + 1 intentional skip, appliance
+browser test 1 passed. Sabotage checks confirmed that the new tests fail when the safety-relevant
+logic is broken.
+
+### Still open (next steps, in priority order)
+
+1. **User roles / admin sessions** (SE7-04): today any paired browser can add devices and enable control.
+2. **Validation with real hardware** per `docs/HARDWARE_TEST_MATRIX.md` (Shelly families, real HA, KNX TCP/Secure/routing).
+3. **Use a hub device as the lamp target**, so gestures and voice can drive any device with `on_off`
+   (today they drive the light configured in the KNX wizard).
+4. Stale-state fix for the legacy light API (SE7-02); TLS by default (SE7-05).
+5. Opt-in mDNS discovery for Shelly (requires host networking), RGB(W)/EM devices, multi-arch images
+   and a published registry image, Proxmox LXC template.
+6. Device de-duplication: `metadata.linkedTo` exists for manual linking; automatic matching (HA
+   device registry ↔ Shelly MAC) needs HA admin APIs and was deliberately not automated.

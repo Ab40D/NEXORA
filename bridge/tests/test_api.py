@@ -325,3 +325,14 @@ def test_unreachable_interface_reports_actionable_error() -> None:
         assert err["code"].startswith("KNX_CONNECT")
         assert err["hint"]
         assert b.get("/knx/status").json()["state"] == "error"
+
+
+def test_hub_emergency_stop_also_blocks_the_light_api(bridge: BridgeClient, fake: FakeHandle) -> None:
+    register(bridge)
+    before = [r for r in fake.received() if r[0] == "write"]
+    assert bridge.post("/safety/stop").json()["active"] is True
+    r = cmd(bridge, "on", "stop-1")
+    assert r.status_code == 423 and r.json()["error"]["code"] == "SAFETY_STOP_ACTIVE"
+    assert [r for r in fake.received() if r[0] == "write"] == before  # nothing reached the bus
+    bridge.post("/safety/resume")
+    assert cmd(bridge, "on", "stop-2").status_code == 200

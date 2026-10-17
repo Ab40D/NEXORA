@@ -184,6 +184,30 @@ of the fix · OWASP Top 10:2025 / ASVS 5.0.
 
 ---
 
+## 4a. Status after release 1.1.0 (local-first hub, 2026-10-17)
+
+Re-assessed against the 1.1.0 code (commit after `143e2ab`). "Hub path" = the new device API /
+appliance; "legacy path" = the 1.0 per-session light API and the browser-side HA mode of the hosted app.
+
+| ID | Status in 1.1.0 | Evidence |
+| --- | --- | --- |
+| SE7-01 | **Mitigated.** Hub path: HA token server-side only (`secrets.json` 0600, write-only API). Legacy browser path: tokens kept in memory only (no `sessionStorage`); full-rights token still exists in that tab's memory | `devices/adapters/homeassistant.py`, `api_devices.py` (`tokenStored`), `src/lib/ha/oauth.ts` |
+| SE7-02 | **Open on the legacy path**; the hub path never reuses stale values (unanswered reads stay unknown; "confirmed" only on matching feedback) | `devices/adapters/knx.py` (`_initial_reads`, waiters) |
+| SE7-03 | **Mitigated in the appliance** (`connect-src 'self'` blocks the telemetry); hosted build unchanged (disclosure) | `bridge/se7enx_bridge/ui.py` `UI_CSP`; appliance browser test asserts zero off-origin requests |
+| SE7-04 | **Open and broader**: any paired browser can now also add devices, store device credentials and enable real control (with acknowledgement). Pairing (code from the console/log) remains the only gate; roles are the most important next step | `api_devices.py` (all routes `require_session`) |
+| SE7-05 | **Open**: HTTP by default on the LAN; HTTPS options documented | `docs/LOCAL_DEPLOYMENT.md` §6 |
+| SE7-07 | **Mostly addressed**: hub-wide emergency stop for device commands **and** the legacy light API (423), per-device minimum interval, one command in flight per device | `devices/registry.py`, `api.py` `_command`, `test_hub_emergency_stop_also_blocks_the_light_api` |
+| SE7-08 | **Addressed on the hub path** (only entities added as devices can be controlled); legacy browser path unchanged | `devices/adapters/homeassistant.py` |
+| SE7-09 | **Partly**: appliance CSP closes the exfiltration channel (`connect-src 'self'`) but still needs `'unsafe-inline'` for the static export | `ui.py` |
+| SE7-15 | **By design in the appliance**: the container listens on all interfaces so LAN devices can reach the UI; `SE7ENX_BIND_ADDRESS` limits the published interface; Host allowlist + same-origin rules apply | `deploy/appliance/compose.yaml` |
+| SE7-16 | **Mitigated**: the image installs exact tested versions from `bridge/constraints.txt` (no hashes yet) | `Dockerfile` |
+| SE7-26 | **Addressed**: opt-in Host allowlist, on by default in the appliance (`auto`); same-origin trusted only for allowed hosts | `hosts.py`, `api.py` `SecurityMiddleware` |
+
+New controls in 1.1.0: device hosts restricted to private/link-local addresses (no loopback, no
+public IPs, no scanning); credentials never returned or logged (tested in responses, files, exports
+and logs); real devices created read-only; KNX writes limited to each device's configured addresses
+with the operator allowlist as a ceiling; schema-validated commands per capability.
+
 ## 5. Details for the high-severity findings
 
 ### SE7-01: Full-scope Home Assistant tokens in browser storage

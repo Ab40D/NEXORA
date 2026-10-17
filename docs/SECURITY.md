@@ -57,6 +57,20 @@ Bridge: `Content-Security-Policy: default-src 'none'`, `X-Frame-Options: DENY`,
 `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
 `Cross-Origin-Resource-Policy: same-origin`, `Cache-Control: no-store`, HSTS when TLS is enabled.
 
+## Local hub (1.1.0)
+
+* **Home Assistant** runs server-side in the hub: the token lives in `secrets.json` (0600) or an
+  environment/secret file, is write-only through the API and is never sent to the browser. Only
+  entities added as devices can be controlled.
+* **Shelly** devices are contacted only at explicitly entered local addresses (private / link-local;
+  loopback and public addresses refused; no scanning). Device passwords are stored like the HA token.
+* **Real control is opt-in per device** (explicit acknowledgement). A **hub-wide emergency stop**
+  blocks real-device commands from every client, including the legacy light API.
+* **Appliance**: same-origin UI, `Host` allowlist (`auto`), `SE7ENX_ALLOWED_ORIGINS=none`, CSP
+  `connect-src 'self'`, non-root read-only container. See [LOCAL_DEPLOYMENT.md](LOCAL_DEPLOYMENT.md).
+* Still open: no user roles (any paired browser can manage devices), HTTP by default on the LAN.
+  Status per finding: [SECURITY_AUDIT.md §4a](../SECURITY_AUDIT.md#4a-status-after-release-110-local-first-hub-2026-10-17).
+
 ## Known limitations (from the audit)
 
 | ID | Severity | Summary |

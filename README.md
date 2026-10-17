@@ -17,6 +17,24 @@ reflects the state your installation actually reports.
 > verified on real hardware, and the Home Assistant path only against a mock. See the
 > [deployment checklist](DEPLOYMENT_CHECKLIST.md).
 
+## Run SE7ENX on your own hardware (local appliance, 1.1)
+
+One container serves the web UI and the local hub. It connects your **Home Assistant**
+(server-side token), **Shelly** devices (by local IP, Gen1 and Gen2+) and **KNX** (explicit group
+address / DPT mapping), with no cloud backend, public domain or port forwarding.
+
+```bash
+cd deploy/appliance && cp .env.example .env
+docker compose up -d --build        # then open http://<this machine>:8787 → Devices
+docker compose logs se7enx          # one-time pairing code
+```
+
+Guide: [docs/LOCAL_DEPLOYMENT.md](docs/LOCAL_DEPLOYMENT.md) · What is verified on real hardware and
+what is not: [docs/HARDWARE_TEST_MATRIX.md](docs/HARDWARE_TEST_MATRIX.md) · Design and plan:
+[docs/LOCAL_FIRST_PLAN.md](docs/LOCAL_FIRST_PLAN.md).
+
+![Devices tab of the local appliance](docs/screenshots/appliance-devices.jpg)
+
 ## Highlights
 
 * **Instant simulation** — opens with an interactive 3D lamp; nothing to install. Simulation is labelled everywhere and never touches hardware.
@@ -44,6 +62,9 @@ Security: [docs/SECURITY.md](docs/SECURITY.md).
 
 | Document | For | Contents |
 | --- | --- | --- |
+| [docs/LOCAL_DEPLOYMENT.md](docs/LOCAL_DEPLOYMENT.md) | Anyone installing SE7ENX at home | Docker Compose appliance: install, configuration, network addressing, HTTPS, backup, upgrade/rollback, troubleshooting |
+| [docs/HARDWARE_TEST_MATRIX.md](docs/HARDWARE_TEST_MATRIX.md) | Installers, reviewers | What was verified against fakes vs. real Shelly / Home Assistant / KNX equipment |
+| [CHANGELOG.md](CHANGELOG.md) | Everyone | Release notes |
 | [USER_GUIDE.md](USER_GUIDE.md) | Everyday users | Step-by-step use of simulation, gestures, voice, bridge and Home Assistant connection |
 | [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md) | Owners, installers, developers | Full specification: requirements, flows, KNX integration, privacy, configuration, compatibility matrix |
 | [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) | Operators, installers | Deployment gates, hardware and Home Assistant validation plans, operations |

@@ -707,6 +707,13 @@ def create_app(
         cached = session.recent_requests.get(body.requestId)
         if cached and time.monotonic() - cached[0] < IDEMPOTENCY_WINDOW_S:
             return cached[1]  # retried request: never send the telegram twice
+        if state.registry.safety is not None:  # the hub emergency stop also covers the per-session light API
+            raise ApiError(
+                423,
+                "SAFETY_STOP_ACTIVE",
+                "The hub emergency stop is active.",
+                "Resume control in the Devices tab once it is safe.",
+            )
         limit(state.cmd_limiter, session.id, "commands")
         limit(state.global_cmd_limiter, "global", "commands on this bridge")
         require_allowed(light.switch)

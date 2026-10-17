@@ -232,3 +232,76 @@ The stream ends when the session expires or is revoked; the client then reports
 These routes are served by the **bridge on the customer's LAN**, not by Vercel —
 serverless functions cannot reach a private network, send KNXnet/IP UDP or keep
 a tunnel open. The Vercel deployment only serves the UI and `GET /api/health`.
+
+---
+
+## Device API (hub, bridge ≥ 1.1.0)
+
+Unified devices across integrations (`simulated`, `shelly`, `homeassistant`, `knx`). All routes
+require `Authorization: Bearer <token>` (same pairing/session as above). Errors use the same
+`{ "error": { "code", "message", "hint" } }` body. Device-level authentication failures are reported
+as **502** (`SHELLY_AUTH_FAILED`, `HA_AUTH_FAILED`), never 401, which always means "SE7ENX session
+invalid".
+
+### Device object (`GET /devices` → `{ "devices": [Device], "safety": Safety }`)
+
+```json
+{
+  "id": "kitchen", "name": "Kitchen", "type": "light", "integration": "knx", "simulated": false,
+  "model": "KNX group-address mapping",
+  "capabilities": ["brightness", "dim_relative", "on_off"],
+  "commands": ["turn_on", "turn_off", "toggle", "set_brightness", "dim"],
+  "controlEnabled": false, "controlAllowed": false, "hidden": false, "metadata": { "room": "Ground floor" },
+  "connection": { "status": "online", "lastSeen": "2026-10-17T12:00:00Z", "lastError": null },
+  "state": { "reported": { "on": true, "brightness": 40 }, "reportedAt": "…", "source": "status",
+             "requested": null, "requestedAt": null, "pending": false },
+  "config": { "switch": "1/1/1", "switchStatus": "1/1/2", "brightness": "1/2/1" },
+  "credentialsStored": false, "diagnostics": { }
+}
+```
+
+* `type`: `light | switch | outlet | cover | sensor`. `connection.status`: `online | offline |
+  unauthorized | unavailable | error | unknown`.
+* `commands` are derived from the capabilities the device actually reports. Sensors have none.
+* Conventions: `brightness` and `position` are 0–100; **position 100 = open** (KNX inversion
+  handled by the hub); `power` W, `energy` Wh.
+* `state.reported` comes from the device. `state.requested` is what was asked and not yet confirmed.
+
+### Routes
+
+| Route | Description |
+| --- | --- |
+| `GET /devices`, `GET /devices/{id}` | List / one device |
+| `POST /devices` | Add: `{ "device": DeviceConfig, "credentials"?: { "username"?, "password" } }` → `201 Device`. Real devices are **always created with `controlEnabled: false`**. Shelly devices are identified first (wrong channel → `400 SHELLY_CHANNEL_NOT_FOUND`); HA entities must exist (`404 HA_ENTITY_NOT_FOUND`); KNX addresses must lie inside `SE7ENX_ALLOWED_GROUP_ADDRESSES` when set (`403 GA_NOT_ALLOWED`) |
+| `PATCH /devices/{id}` | `{ name?, hidden?, metadata?, controlEnabled?, acknowledgeRealControl? }`. Enabling control of a real device requires `acknowledgeRealControl: true` (`400 ACKNOWLEDGEMENT_REQUIRED`) |
+| `DELETE /devices/{id}` | `204`, also deletes stored credentials |
+| `POST /devices/{id}/commands` | `{ "command", "params", "requestId", "source" }` → `{ "outcome": "confirmed" \| "accepted" \| "simulated", "delivery", "detail", "device" }` |
+| `POST /devices/{id}/refresh` | Ask the device for fresh state |
+| `GET /integrations` | `{ "integrations": [{ name, state, detail, lastSuccessAt, lastError, … }], "persistent": bool }` |
+| `GET /safety` · `POST /safety/stop` · `POST /safety/resume` | Hub-wide emergency stop for real devices (all clients) |
+| `GET /config/export` | Configuration **without credentials** (attachment) |
+| `POST /integrations/shelly/identify` | `{ host, username?, password? }` → model, generation, firmware, channels with capabilities. Nothing is saved; only local addresses |
+| `GET` / `PUT` / `DELETE /integrations/homeassistant` | Status + config (`tokenStored` only, never the token). `PUT { url, token?, verifyTls }`. `409 HA_CONFIGURED_BY_ENV` when set via environment |
+| `POST /integrations/homeassistant/test` | One-shot connection test with given or stored URL/token |
+| `GET /integrations/homeassistant/entities` | Supported entities (light, switch, input_boolean, cover, sensor, binary_sensor) |
+
+Commands and parameters:
+
+| Command | Params | Capability |
+| --- | --- | --- |
+| `turn_on`, `turn_off`, `toggle` | – | `on_off` |
+| `set_brightness` | `{ "brightness": 0–100 }` (absolute) | `brightness` |
+| `dim` | `{ "direction": "up" \| "down" \| "stop", "step"?: 1–100 }` (relative, start/stop) | `dim_relative` |
+| `open`, `close` | – | `open_close` |
+| `stop` | – | `stop` |
+| `set_position` | `{ "position": 0–100 }` (100 = open) | `position` |
+
+Command policy errors: `400 UNSUPPORTED_COMMAND`, `403 CONTROL_NOT_ENABLED`, `423 SAFETY_STOP_ACTIVE`,
+`503 DEVICE_UNAVAILABLE`, `429 DEVICE_RATE_LIMITED` (per-device minimum interval), `409 DEVICE_BUSY`,
+`504 DEVICE_TIMEOUT`, plus protocol errors (`KNX_NEGATIVE_CONFIRMATION`, `SHELLY_UNREACHABLE`,
+`HA_SERVICE_FAILED`, …).
+
+### Events (`GET /events`)
+
+In addition to the events above: `device.state` (full Device), `device.removed` (`{ id }`),
+`integration.status`, `safety`. These are hub-wide and sent to every session.
