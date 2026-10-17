@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .group_address import validate_pattern
+from .hosts import HostPatternError, validate_host_pattern
 
 CONNECTION_TYPES = ("automatic", "tunneling", "tunneling_tcp", "tunneling_tcp_secure", "routing", "routing_secure")
 PRIVATE_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
@@ -62,6 +63,16 @@ class Settings:
     command_window_s: float = 10.0
     global_command_limit: int = 20
     log_level: str = "INFO"
+    # --- local hub (device registry, appliance) ---
+    data_dir: str | None = None  # persistent config.json / secrets.json; None = in memory only
+    ui_dir: str | None = None  # static web UI served on the same origin (appliance image)
+    allowed_hosts: tuple[str, ...] | None = None  # None = Host header not checked (legacy default)
+    sample_devices: bool = False  # add simulated demo devices when the device list is empty
+    ha_url: str | None = None
+    ha_token: str | None = field(default=None, repr=False)
+    ha_verify_tls: bool = True
+    shelly_poll_s: int = 5
+    device_min_interval_ms: int = 300
 
     @property
     def secure(self) -> bool:
@@ -91,6 +102,14 @@ class Settings:
             "docs": self.enable_docs,
             "pairing_code": "fixed (SE7ENX_PAIRING_CODE)" if self.pairing_code else "random, rotating",
             "session_ttl_h": self.session_ttl_s / 3600,
+            "data_dir": self.data_dir or "(none — device configuration is not persisted)",
+            "ui_dir": self.ui_dir,
+            "allowed_hosts": list(self.allowed_hosts) if self.allowed_hosts is not None else "(not checked)",
+            "sample_devices": self.sample_devices,
+            "homeassistant_url": self.ha_url,
+            "homeassistant_token": "***" if self.ha_token else None,
+            "shelly_poll_s": self.shelly_poll_s,
+            "device_min_interval_ms": self.device_min_interval_ms,
         }
 
     # ------------------------------------------------------------------ parsing
@@ -256,4 +275,55 @@ class Settings:
             raise ConfigError("SE7ENX_LOG_LEVEL must be DEBUG, INFO, WARNING or ERROR")
         kwargs["log_level"] = lvl
 
+        # --- local hub ---
+        kwargs["data_dir"] = get("DATA_DIR")
+        ui_dir = get("UI_DIR")
+        if ui_dir and not Path(ui_dir, "index.html").is_file():
+            raise ConfigError("SE7ENX_UI_DIR must point to a directory containing index.html")
+        kwargs["ui_dir"] = ui_dir
+        hosts = as_list("ALLOWED_HOSTS")
+        if hosts is not None:
+            try:
+                kwargs["allowed_hosts"] = tuple(dict.fromkeys(validate_host_pattern(h) for h in hosts))
+            except HostPatternError as err:
+                raise ConfigError(f"SE7ENX_ALLOWED_HOSTS: {err}") from err
+        kwargs["sample_devices"] = as_bool("SAMPLE_DEVICES", d.sample_devices)
+        ha_url = get("HA_URL")
+        if ha_url:
+            try:
+                kwargs["ha_url"] = normalize_ha_url(ha_url)
+            except ValueError as err:
+                raise ConfigError(f"SE7ENX_HA_URL: {err}") from err
+        token, token_file = get("HA_TOKEN"), get("HA_TOKEN_FILE")
+        if token and token_file:
+            raise ConfigError("Set SE7ENX_HA_TOKEN or SE7ENX_HA_TOKEN_FILE, not both")
+        if token_file:
+            try:
+                token = Path(token_file).read_text(encoding="utf-8").strip()
+            except OSError as err:
+                raise ConfigError(f"SE7ENX_HA_TOKEN_FILE cannot be read: {err.strerror}") from err
+            if not token:
+                raise ConfigError("SE7ENX_HA_TOKEN_FILE is empty")
+        if token and not kwargs.get("ha_url"):
+            raise ConfigError("SE7ENX_HA_TOKEN requires SE7ENX_HA_URL")
+        kwargs["ha_token"] = token
+        kwargs["ha_verify_tls"] = as_bool("HA_VERIFY_TLS", d.ha_verify_tls)
+        kwargs["shelly_poll_s"] = as_int("SHELLY_POLL_S", d.shelly_poll_s, 2, 300)
+        kwargs["device_min_interval_ms"] = as_int("DEVICE_MIN_INTERVAL_MS", d.device_min_interval_ms, 0, 10_000)
+
         return cls(**kwargs)  # type: ignore[arg-type]
+
+
+def normalize_ha_url(value: str) -> str:
+    """Home Assistant base URL: http(s), a host, no credentials, query or fragment."""
+    parts = urlsplit(value.strip())
+    if parts.scheme not in ("http", "https"):
+        raise ValueError("must start with http:// or https://")
+    if not parts.hostname:
+        raise ValueError("must include a host, e.g. http://homeassistant.local:8123")
+    if parts.username or parts.password:
+        raise ValueError("must not contain credentials")
+    if parts.query or parts.fragment:
+        raise ValueError("must not contain a query or fragment")
+    path = parts.path.rstrip("/")
+    return f"{parts.scheme}://{parts.netloc}{path}"

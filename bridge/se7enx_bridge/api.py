@@ -9,11 +9,12 @@ import logging
 import re
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -25,9 +26,15 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from xknx.dpt import DPTArray, DPTBinary
 
 from . import API_VERSION, __version__
+from .api_devices import build_device_router
 from .config import Settings
+from .devices.adapters.base import AdapterCallbacks, DeviceAdapter
+from .devices.model import DeviceError
+from .devices.registry import DeviceRegistry
+from .devices.store import ConfigStore
 from .events import EventBroker
 from .group_address import GroupAddressError, GroupAddressPolicy, parse_group_address
+from .hosts import HostPolicy
 from .knx import GatewayTarget, KnxError, KnxService, KnxStatus, gateway_allowed, now_iso
 from .security import PairingManager, Session, SessionStore, SlidingWindowLimiter, format_code
 
@@ -140,22 +147,41 @@ class SecurityMiddleware:
     ALLOW_METHODS = "GET, POST, PUT, DELETE, OPTIONS"
     ALLOW_HEADERS = "Authorization, Content-Type, Accept"
 
-    def __init__(self, app: ASGIApp, allowed_origins: tuple[str, ...], hsts: bool, docs: bool) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        allowed_origins: tuple[str, ...],
+        hsts: bool,
+        docs: bool,
+        host_policy: HostPolicy | None = None,
+    ) -> None:
         self.app = app
         self.allowed = {o.lower() for o in allowed_origins}
         self.hsts = hsts
         self.docs = docs
+        self.host_policy = host_policy
 
     def _security_headers(self, h: MutableHeaders, path: str) -> None:
         h["X-Content-Type-Options"] = "nosniff"
-        h["Referrer-Policy"] = "no-referrer"
+        h.setdefault("Referrer-Policy", "no-referrer")
         h["X-Frame-Options"] = "DENY"
         h["Cross-Origin-Resource-Policy"] = "same-origin"
         h.setdefault("Cache-Control", "no-store")
         if not (self.docs and (path.startswith("/docs") or path.startswith("/openapi"))):
-            h["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+            # API responses get the strictest policy; UI pages set their own (see ui.py).
+            h.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
         if self.hsts:
             h["Strict-Transport-Security"] = "max-age=31536000"
+
+    def _origin_allowed(self, origin: str, host: str | None) -> bool:
+        if origin.lower() in self.allowed:
+            return True
+        # Same-origin requests (the UI served by this hub). Only trusted when the Host header itself
+        # was validated, otherwise DNS rebinding could make an attacker's page "same-origin".
+        if self.host_policy is not None and host:
+            netloc = urlsplit(origin).netloc.lower()
+            return bool(netloc) and netloc == host.strip().lower()
+        return False
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -166,14 +192,28 @@ class SecurityMiddleware:
         method = scope["method"]
         path = scope.get("path", "")
 
+        host = headers.get("host")
+
         async def reply(resp: Response) -> None:
             self._security_headers(resp.headers, path)
-            if origin and origin.lower() in self.allowed:
+            if origin and self._origin_allowed(origin, host):
                 resp.headers["Access-Control-Allow-Origin"] = origin
                 resp.headers["Vary"] = "Origin"
             await resp(scope, receive, send)
 
-        if origin is not None and origin.lower() not in self.allowed:
+        if self.host_policy is not None and not self.host_policy.allows(host):
+            log.warning("Rejected request with Host %r to %s %s", host, method, path)
+            await reply(
+                error_response(
+                    421,
+                    "HOST_NOT_ALLOWED",
+                    "This host name is not allowed for the SE7ENX hub.",
+                    "Open SE7ENX by its IP address, or add the host name to SE7ENX_ALLOWED_HOSTS.",
+                )
+            )
+            return
+
+        if origin is not None and not self._origin_allowed(origin, host):
             log.warning("Rejected request from origin %r to %s %s", origin, method, path)
             await reply(
                 error_response(
@@ -221,10 +261,17 @@ class SecurityMiddleware:
 
 
 class BridgeState:
-    def __init__(self, settings: Settings, knx: KnxService) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        knx: KnxService,
+        adapter_factories: dict[str, Callable[[AdapterCallbacks], DeviceAdapter]] | None = None,
+    ) -> None:
         self.settings = settings
         self.knx = knx
         self.broker = EventBroker()
+        self.store = ConfigStore(settings.data_dir)
+        self.registry = DeviceRegistry(settings, self.store, self.broker, adapter_factories)
         self.policy = GroupAddressPolicy(settings.allowed_group_addresses)
         self.bridge_id = secrets.token_hex(6)
         self.pairing = PairingManager(settings.pairing_code, settings.pairing_ttl_s, on_new_code=self._announce_code)
@@ -298,16 +345,23 @@ def iso_from_epoch(ts: float) -> str:
 # =============================================================================== app factory
 
 
-def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
+def create_app(
+    settings: Settings,
+    knx: KnxService | None = None,
+    adapter_factories: dict[str, Callable[[AdapterCallbacks], DeviceAdapter]] | None = None,
+) -> FastAPI:
     knx_service = knx or KnxService(settings)
-    state = BridgeState(settings, knx_service)
+    state = BridgeState(settings, knx_service, adapter_factories)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if not state.policy.configured:
             log.warning("SE7ENX_ALLOWED_GROUP_ADDRESSES is empty — every light command will be refused (default deny).")
         log.info("Allowed origins: %s", ", ".join(settings.allowed_origins))
+        if settings.allowed_hosts is not None:
+            log.info("Allowed hosts: %s (same-origin requests accepted)", ", ".join(settings.allowed_hosts))
         await knx_service.start()
+        await state.registry.start()
 
         async def rotate_codes() -> None:
             while True:
@@ -322,6 +376,7 @@ def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
             rotator.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await rotator
+            await state.registry.stop()
             await knx_service.stop()
 
     app = FastAPI(
@@ -338,6 +393,7 @@ def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
         allowed_origins=settings.allowed_origins,
         hsts=bool(settings.tls_cert),
         docs=settings.enable_docs,
+        host_policy=HostPolicy(settings.allowed_hosts) if settings.allowed_hosts is not None else None,
     )
 
     # ------------------------------------------------------------------ errors
@@ -347,6 +403,10 @@ def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
 
     @app.exception_handler(KnxError)
     async def _knx_error(_r: Request, e: KnxError) -> JSONResponse:
+        return error_response(e.status, e.code, e.message, e.hint)
+
+    @app.exception_handler(DeviceError)
+    async def _device_error(_r: Request, e: DeviceError) -> JSONResponse:
         return error_response(e.status, e.code, e.message, e.hint)
 
     @app.exception_handler(RequestValidationError)
@@ -735,6 +795,8 @@ def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
                                 yield sse("light.state", state.light_state(light))
                     elif ev.type == "light.command" and ev.session_id == session.id:
                         yield sse("light.command", ev.data)
+                    elif ev.type in ("device.state", "device.removed", "integration.status", "safety"):
+                        yield sse(ev.type, ev.data)  # hub-wide device events, visible to every session
             finally:
                 sub.close()
                 state.streams[session.id] = max(0, state.streams.get(session.id, 1) - 1)
@@ -747,9 +809,18 @@ def create_app(settings: Settings, knx: KnxService | None = None) -> FastAPI:
         )
 
     app.include_router(r)
+    app.include_router(
+        build_device_router(state.registry, require_session, limit, state.cmd_limiter, state.global_cmd_limiter)
+    )
 
-    @app.get("/", include_in_schema=False)
-    async def root() -> dict[str, Any]:
-        return {"service": "se7enx-bridge", "api": "/api/v1", "health": "/api/v1/health"}
+    if settings.ui_dir:
+        from .ui import mount_ui
+
+        mount_ui(app, settings.ui_dir)  # catch-all route: must be registered after the API routes
+    else:
+
+        @app.get("/", include_in_schema=False)
+        async def root() -> dict[str, Any]:
+            return {"service": "se7enx-bridge", "api": "/api/v1", "health": "/api/v1/health"}
 
     return app
