@@ -116,7 +116,13 @@ def test_home_assistant_end_to_end(tmp_path: Path, fake_ha: Any, caplog: pytest.
         assert r.status_code == 404 and r.json()["error"]["code"] == "HA_ENTITY_NOT_FOUND"
 
         devices = {d["id"]: d for d in bc.get("/devices").json()["devices"]}
-        assert devices["kitchen"]["commands"] == ["turn_on", "turn_off", "toggle", "set_brightness"]
+        assert devices["kitchen"]["commands"] == [
+            "turn_on",
+            "turn_off",
+            "toggle",
+            "set_brightness",
+            "adjust_brightness",
+        ]
         assert devices["porch"]["commands"] == ["turn_on", "turn_off", "toggle"]
         assert set(devices["garage"]["commands"]) == {"open", "close", "stop", "set_position"}
         assert devices["hall-temp"]["commands"] == [] and devices["hall-temp"]["state"]["reported"] == {

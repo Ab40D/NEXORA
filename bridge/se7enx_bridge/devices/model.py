@@ -50,6 +50,7 @@ COMMAND_CAPABILITY: dict[str, Capability] = {
     "turn_off": Capability.ON_OFF,
     "toggle": Capability.ON_OFF,
     "set_brightness": Capability.BRIGHTNESS,
+    "adjust_brightness": Capability.BRIGHTNESS,  # relative change, resolved by the hub against reported brightness
     "dim": Capability.DIM_RELATIVE,
     "open": Capability.OPEN_CLOSE,
     "close": Capability.OPEN_CLOSE,
@@ -65,7 +66,18 @@ def commands_for(capabilities: frozenset[Capability] | set[Capability]) -> list[
 
 
 DeviceType = Literal["light", "switch", "outlet", "cover", "sensor"]
-CommandName = Literal["turn_on", "turn_off", "toggle", "set_brightness", "dim", "open", "close", "stop", "set_position"]
+CommandName = Literal[
+    "turn_on",
+    "turn_off",
+    "toggle",
+    "set_brightness",
+    "adjust_brightness",
+    "dim",
+    "open",
+    "close",
+    "stop",
+    "set_position",
+]
 CommandSource = Literal["manual", "lamp", "keyboard", "gesture", "voice", "test"]
 
 
@@ -262,6 +274,12 @@ class DeviceCommand(ApiModel):
         if self.command == "set_brightness":
             self.params = {"brightness": int_param("brightness", 0, 100)}
             extra = set(p) - {"brightness"}
+        elif self.command == "adjust_brightness":
+            delta = int_param("delta", -100, 100)
+            if delta == 0:
+                raise ValueError("'delta' must not be 0")
+            self.params = {"delta": delta}
+            extra = set(p) - {"delta"}
         elif self.command == "set_position":
             self.params = {"position": int_param("position", 0, 100)}
             extra = set(p) - {"position"}
@@ -334,7 +352,8 @@ class CommandResult:
     # confirmed: the device reported the requested state afterwards
     # accepted: the device/controller accepted the request but has not confirmed the new state (yet)
     # simulated: simulated device, nothing physical happened
-    outcome: Literal["confirmed", "accepted", "simulated"]
+    # already_satisfied: the device reliably reported the requested state already; nothing was sent
+    outcome: Literal["confirmed", "accepted", "simulated", "already_satisfied"]
     delivery: str  # protocol-level acknowledgement, e.g. "http_ok", "bus_confirmed", "service_call_ok"
     detail: str
 

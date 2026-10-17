@@ -328,6 +328,24 @@ class DeviceRegistry:
                     hint=(rt.last_error or {}).get("message"),
                     status=503,
                 )
+        if cmd.command == "adjust_brightness":
+            cmd = self._resolve_relative(cfg, rt, cmd)
+        expected = expected_state(cmd, rt.reported)
+        if expected and self._reliable(cfg, rt) and state_matches(expected, rt.reported, tolerance=0):
+            # State-aware: never re-send what the device reliably reports already.
+            audit.info(
+                "device command device=%r command=%s source=%s client=%r outcome=already_satisfied",
+                device_id,
+                cmd.command,
+                cmd.source,
+                client,
+            )
+            return {
+                "outcome": "already_satisfied",
+                "delivery": "none",
+                "detail": "The device already reports the requested state; no command was sent.",
+                "device": self.device_json(device_id),
+            }
         now = time.monotonic()
         gap = self.settings.device_min_interval_ms / 1000
         if now - rt.last_command_at < gap:
@@ -336,7 +354,6 @@ class DeviceRegistry:
             raise DeviceError("DEVICE_BUSY", "A command for this device is still in progress.", status=409)
         self._busy.add(device_id)
         rt.last_command_at = now
-        expected = expected_state(cmd, rt.reported)
         rt.requested = expected or None
         rt.requested_at = time.time()
         self._publish(device_id)
@@ -370,6 +387,43 @@ class DeviceRegistry:
             "detail": result.detail,
             "device": self.device_json(device_id),
         }
+
+    def _reliable(self, cfg: DeviceConfig, rt: DeviceRuntime) -> bool:
+        """True when the reported state can be trusted to describe the device right now."""
+        if rt.reported_at is None:
+            return False
+        if cfg.integration == "simulated":
+            return True
+        if rt.connection != "online" or rt.requested is not None:
+            return False
+        if rt.reported_source == "poll":  # polled devices: only while the last poll is recent
+            interval = getattr(cfg, "poll_interval_s", None) or self.settings.shelly_poll_s
+            return time.time() - rt.reported_at <= 2 * interval + 2
+        # device feedback (HA events, KNX status/read responses). "bus_observed" (another sender wrote
+        # the switching address) is not actuator feedback and is therefore not trusted here.
+        return rt.reported_source in ("event", "status", "read")
+
+    def _resolve_relative(self, cfg: DeviceConfig, rt: DeviceRuntime, cmd: DeviceCommand) -> DeviceCommand:
+        """Turn 'adjust_brightness ±N' into an absolute level using the last reliable brightness."""
+        on = rt.reported.get("on")
+        level = rt.reported.get("brightness")
+        base: int | None = None
+        if self._reliable(cfg, rt):
+            if on is False:
+                base = 0
+            elif isinstance(level, int | float) and not isinstance(level, bool):
+                base = round(level)
+        if base is None:
+            raise DeviceError(
+                "STATE_UNKNOWN",
+                f"The current brightness of {cfg.name} is not known reliably, so a relative change cannot be calculated.",
+                hint="Use an absolute level (for example 50 %), or wait for the device to report its state.",
+                status=409,
+            )
+        target = max(0, min(100, base + cmd.params["delta"]))
+        return DeviceCommand(
+            command="set_brightness", params={"brightness": target}, request_id=cmd.request_id, source=cmd.source
+        )
 
     async def refresh(self, device_id: str) -> dict[str, Any]:
         cfg = self._get(device_id)

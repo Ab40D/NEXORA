@@ -42,10 +42,20 @@ class HomeAssistantSettings(ApiModel):
     verify_tls: bool = True
 
 
+class KnxInterfaceSettings(ApiModel):
+    """KNX/IP interface configured in the UI (KNX Secure stays environment-only)."""
+
+    connection_type: Literal["tunneling", "tunneling_tcp", "routing"] | None = None
+    gateway_ip: str | None = Field(default=None, max_length=45)
+    gateway_port: int = Field(default=3671, ge=1, le=65535)
+    route_back: bool = False
+
+
 class HubConfig(ApiModel):
     version: Literal[1] = SCHEMA_VERSION
     devices: list[DeviceConfig] = Field(default_factory=list, max_length=500)
     homeassistant: HomeAssistantSettings = Field(default_factory=HomeAssistantSettings)
+    knx: KnxInterfaceSettings = Field(default_factory=KnxInterfaceSettings)
 
 
 _HUB_CONFIG = TypeAdapter(HubConfig)

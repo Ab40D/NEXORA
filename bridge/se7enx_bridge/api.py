@@ -27,6 +27,8 @@ from xknx.dpt import DPTArray, DPTBinary
 
 from . import API_VERSION, __version__
 from .api_devices import build_device_router
+from .api_knx import apply_stored_interface, build_knx_interface_router
+from .assistant import LlmInterpreter, build_assistant_router
 from .config import Settings
 from .devices.adapters.base import AdapterCallbacks, DeviceAdapter
 from .devices.model import DeviceError
@@ -365,19 +367,28 @@ def create_app(
     settings: Settings,
     knx: KnxService | None = None,
     adapter_factories: dict[str, Callable[[AdapterCallbacks], DeviceAdapter]] | None = None,
+    assistant: LlmInterpreter | None = None,
 ) -> FastAPI:
     knx_service = knx or KnxService(settings)
     state = BridgeState(settings, knx_service, adapter_factories)
+    interpreter = assistant or LlmInterpreter(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if not state.policy.configured:
             log.warning("SE7ENX_ALLOWED_GROUP_ADDRESSES is empty — every light command will be refused (default deny).")
         log.info("Allowed origins: %s", ", ".join(settings.allowed_origins))
+        if interpreter.enabled:
+            log.info(
+                "AI intent provider enabled: model %s at %s (typed/spoken requests are sent to it)",
+                interpreter.model,
+                interpreter.host,
+            )
         if settings.allowed_hosts is not None:
             log.info("Allowed hosts: %s (same-origin requests accepted)", ", ".join(settings.allowed_hosts))
         await knx_service.start()
         await state.registry.start()
+        await apply_stored_interface(settings, knx_service, state.registry)
 
         async def rotate_codes() -> None:
             while True:
@@ -394,6 +405,7 @@ def create_app(
                 await rotator
             await state.registry.stop()
             await knx_service.stop()
+            await interpreter.aclose()
 
     app = FastAPI(
         title="SE7ENX Bridge",
@@ -835,6 +847,8 @@ def create_app(
     app.include_router(
         build_device_router(state.registry, require_session, limit, state.cmd_limiter, state.global_cmd_limiter)
     )
+    app.include_router(build_knx_interface_router(settings, knx_service, state.registry, require_session, limit))
+    app.include_router(build_assistant_router(interpreter, require_session, limit))
 
     if settings.ui_dir:
         from .ui import mount_ui

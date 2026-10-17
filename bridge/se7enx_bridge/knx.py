@@ -72,6 +72,7 @@ class GatewayTarget:
     connection_type: str
     host: str | None
     port: int
+    route_back: bool | None = None  # None = use SE7ENX_KNX_ROUTE_BACK (UI-configured interfaces set it)
 
 
 @dataclass
@@ -205,6 +206,10 @@ class KnxService:
     def on_status(self, fn: Callable[[KnxStatus], None]) -> None:
         self._status_listeners.append(fn)
 
+    def off_status(self, fn: Callable[[KnxStatus], None]) -> None:
+        if fn in self._status_listeners:
+            self._status_listeners.remove(fn)
+
     def _set_status(self, **changes: Any) -> None:
         for k, v in changes.items():
             setattr(self._status, k, v)
@@ -224,6 +229,21 @@ class KnxService:
         if self.settings.autoconnect:
             self._want_connected = True
             self._supervisor = asyncio.create_task(self._supervise(), name="se7enx-knx-supervisor")
+
+    async def reconfigure(self, target: GatewayTarget | None) -> KnxStatus:
+        """Apply an interface configured on the hub (UI). ``None`` disconnects and stops supervising.
+
+        Uses the same supervised connection as environment configuration: initial connection with
+        back-off, then xknx's own reconnect, with the supervisor stepping in if xknx gives up.
+        """
+        await self.stop()
+        if target is None:
+            self._set_status(state="disconnected", last_error=None)
+            return self.status
+        self._target = target
+        self._want_connected = True
+        self._supervisor = asyncio.create_task(self._supervise(), name="se7enx-knx-supervisor")
+        return self.status
 
     async def stop(self) -> None:
         self._want_connected = False
@@ -275,7 +295,7 @@ class KnxService:
             gateway_ip=target.host if not target.connection_type.startswith("routing") else None,
             gateway_port=target.port,
             local_ip=s.local_ip,
-            route_back=s.route_back,
+            route_back=s.route_back if target.route_back is None else target.route_back,
             individual_address=s.individual_address,
             multicast_group=s.multicast_group,
             multicast_port=s.multicast_port,

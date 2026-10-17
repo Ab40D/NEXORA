@@ -71,6 +71,10 @@ class Settings:
     ha_url: str | None = None
     ha_token: str | None = field(default=None, repr=False)
     ha_verify_tls: bool = True
+    # Optional LLM intent interpreter (OpenAI-compatible chat completions API). Disabled by default.
+    llm_url: str | None = None
+    llm_model: str | None = None
+    llm_api_key: str | None = field(default=None, repr=False)
     shelly_poll_s: int = 5
     device_min_interval_ms: int = 300
 
@@ -108,6 +112,9 @@ class Settings:
             "sample_devices": self.sample_devices,
             "homeassistant_url": self.ha_url,
             "homeassistant_token": "***" if self.ha_token else None,
+            "llm_url": self.llm_url,
+            "llm_model": self.llm_model,
+            "llm_api_key": "***" if self.llm_api_key else None,
             "shelly_poll_s": self.shelly_poll_s,
             "device_min_interval_ms": self.device_min_interval_ms,
         }
@@ -317,7 +324,55 @@ class Settings:
         kwargs["shelly_poll_s"] = as_int("SHELLY_POLL_S", d.shelly_poll_s, 2, 300)
         kwargs["device_min_interval_ms"] = as_int("DEVICE_MIN_INTERVAL_MS", d.device_min_interval_ms, 0, 10_000)
 
+        llm_url, llm_model = get("LLM_URL"), get("LLM_MODEL")
+        key, key_file = get("LLM_API_KEY"), get("LLM_API_KEY_FILE")
+        if key and key_file:
+            raise ConfigError("Set SE7ENX_LLM_API_KEY or SE7ENX_LLM_API_KEY_FILE, not both")
+        if key_file:
+            try:
+                key = Path(key_file).read_text(encoding="utf-8").strip()
+            except OSError as err:
+                raise ConfigError(f"SE7ENX_LLM_API_KEY_FILE cannot be read: {err.strerror}") from err
+            if not key:
+                raise ConfigError("SE7ENX_LLM_API_KEY_FILE is empty")
+        if llm_url:
+            try:
+                kwargs["llm_url"] = normalize_llm_url(llm_url)
+            except ValueError as err:
+                raise ConfigError(f"SE7ENX_LLM_URL: {err}") from err
+            if not llm_model:
+                raise ConfigError("SE7ENX_LLM_URL requires SE7ENX_LLM_MODEL")
+            if len(llm_model) > 128:
+                raise ConfigError("SE7ENX_LLM_MODEL is too long")
+            kwargs["llm_model"] = llm_model
+            kwargs["llm_api_key"] = key
+        elif llm_model or key:
+            raise ConfigError("SE7ENX_LLM_MODEL / SE7ENX_LLM_API_KEY require SE7ENX_LLM_URL")
+
         return cls(**kwargs)  # type: ignore[arg-type]
+
+
+def normalize_llm_url(value: str) -> str:
+    """OpenAI-compatible API base URL (e.g. http://192.168.1.20:11434/v1 or https://api.example.com/v1).
+
+    Plain http:// is only accepted for private/loopback addresses; anything else must use https://.
+    """
+    parts = urlsplit(value.strip())
+    if parts.scheme not in ("http", "https"):
+        raise ValueError("must start with http:// or https://")
+    if not parts.hostname:
+        raise ValueError("must include a host")
+    if parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("must not contain credentials, a query or a fragment")
+    if parts.scheme == "http":
+        try:
+            ip = ipaddress.ip_address(parts.hostname)
+        except ValueError:
+            ip = None
+        local_name = parts.hostname == "localhost" or parts.hostname.endswith((".local", ".lan", ".home.arpa"))
+        if not (local_name or (ip is not None and (ip.is_private or ip.is_loopback))):
+            raise ValueError("use https:// for an LLM endpoint outside the local network")
+    return value.strip().rstrip("/")
 
 
 def normalize_ha_url(value: str) -> str:

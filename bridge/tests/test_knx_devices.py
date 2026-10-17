@@ -95,7 +95,14 @@ def test_knx_light_cover_and_sensor(tmp_path: Path) -> None:
             r = bc.post("/devices", {"device": body})
             assert r.status_code == 201, r.text
         devices = {d["id"]: d for d in bc.get("/devices").json()["devices"]}
-        assert devices["kitchen"]["commands"] == ["turn_on", "turn_off", "toggle", "set_brightness", "dim"]
+        assert devices["kitchen"]["commands"] == [
+            "turn_on",
+            "turn_off",
+            "toggle",
+            "set_brightness",
+            "adjust_brightness",
+            "dim",
+        ]
         assert set(devices["blind"]["commands"]) == {"open", "close", "stop", "set_position"}
         assert devices["kitchen"]["connection"]["status"] == "online"
         # explicit GroupValueReads on start-up give the initial sensor value
