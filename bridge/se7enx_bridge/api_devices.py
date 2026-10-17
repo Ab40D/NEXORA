@@ -7,6 +7,7 @@ are written to ``secrets.json`` and never returned.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -15,9 +16,13 @@ from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 
+from .config import normalize_ha_url
+from .devices.adapters.homeassistant import HomeAssistantAdapter
 from .devices.model import DEVICE_ID_PATTERN, ApiModel, DeviceCommand, DeviceConfig, DeviceError, DevicePatch
 from .devices.registry import DeviceRegistry
 from .security import Session, SlidingWindowLimiter
+
+audit = logging.getLogger("se7enx.audit")
 
 
 class Credentials(ApiModel):
@@ -28,6 +33,19 @@ class Credentials(ApiModel):
 class AddDeviceRequest(ApiModel):
     device: DeviceConfig
     credentials: Credentials | None = None
+
+
+class HomeAssistantConfigRequest(ApiModel):
+    url: str = Field(min_length=1, max_length=300)
+    # Write-only: stored in secrets.json, never returned. Omit to keep the stored token.
+    token: str | None = Field(default=None, min_length=8, max_length=4096)
+    verify_tls: bool = True
+
+
+class HomeAssistantTestRequest(ApiModel):
+    url: str | None = Field(default=None, min_length=1, max_length=300)
+    token: str | None = Field(default=None, min_length=8, max_length=4096)
+    verify_tls: bool = True
 
 
 class ShellyIdentifyRequest(ApiModel):
@@ -102,6 +120,47 @@ def build_device_router(
         if identify is None:
             raise DeviceError("INTEGRATION_UNAVAILABLE", "The Shelly integration is not available.", status=404)
         return await identify(body.host, body.username, body.password)
+
+    def ha_adapter() -> HomeAssistantAdapter:
+        adapter = registry.adapters.get("homeassistant")
+        if not isinstance(adapter, HomeAssistantAdapter):
+            raise DeviceError("INTEGRATION_UNAVAILABLE", "The Home Assistant integration is not available.", status=404)
+        return adapter
+
+    def ha_url(value: str) -> str:
+        try:
+            return normalize_ha_url(value)
+        except ValueError as err:
+            raise DeviceError("VALIDATION_ERROR", f"Home Assistant URL {err}.", status=422) from err
+
+    @r.get("/integrations/homeassistant")
+    async def ha_get(_s: Session = Depends(require_session)) -> dict[str, Any]:
+        a = ha_adapter()
+        return {"status": a.status().to_dict(), "config": a.config_json()}
+
+    @r.put("/integrations/homeassistant")
+    async def ha_put(body: HomeAssistantConfigRequest, session: Session = Depends(require_session)) -> dict[str, Any]:
+        limit(config_limiter, session.id, "configuration changes")
+        a = ha_adapter()
+        await a.configure(ha_url(body.url), body.token, body.verify_tls)
+        audit.info("client %r configured Home Assistant at %s", session.client_name, a.config_json()["url"])
+        return {"status": a.status().to_dict(), "config": a.config_json()}
+
+    @r.delete("/integrations/homeassistant", status_code=204)
+    async def ha_delete(session: Session = Depends(require_session)) -> Response:
+        limit(config_limiter, session.id, "configuration changes")
+        await ha_adapter().unconfigure()
+        audit.info("client %r removed the Home Assistant configuration", session.client_name)
+        return Response(status_code=204)
+
+    @r.post("/integrations/homeassistant/test")
+    async def ha_test(body: HomeAssistantTestRequest, session: Session = Depends(require_session)) -> dict[str, Any]:
+        limit(identify_limiter, session.id, "connection tests")
+        return await ha_adapter().test(ha_url(body.url) if body.url else None, body.token, body.verify_tls)
+
+    @r.get("/integrations/homeassistant/entities")
+    async def ha_entities(_s: Session = Depends(require_session)) -> dict[str, Any]:
+        return {"entities": ha_adapter().entities()}
 
     @r.get("/integrations")
     async def integrations(_s: Session = Depends(require_session)) -> dict[str, Any]:

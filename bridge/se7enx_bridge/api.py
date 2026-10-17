@@ -263,9 +263,13 @@ class SecurityMiddleware:
 def default_adapter_factories(
     settings: Settings, store: ConfigStore
 ) -> dict[str, Callable[[AdapterCallbacks], DeviceAdapter]]:
+    from .devices.adapters.homeassistant import HomeAssistantAdapter
     from .devices.adapters.shelly import ShellyAdapter
 
-    return {"shelly": lambda cb: ShellyAdapter(cb, settings, store)}
+    return {
+        "shelly": lambda cb: ShellyAdapter(cb, settings, store),
+        "homeassistant": lambda cb: HomeAssistantAdapter(cb, settings, store),
+    }
 
 
 class BridgeState:
