@@ -5,7 +5,18 @@
  */
 import { z } from "zod";
 
-export const HUB_COMMANDS = ["turn_on", "turn_off", "toggle", "set_brightness", "dim", "open", "close", "stop", "set_position"] as const;
+export const HUB_COMMANDS = [
+  "turn_on",
+  "turn_off",
+  "toggle",
+  "set_brightness",
+  "adjust_brightness",
+  "dim",
+  "open",
+  "close",
+  "stop",
+  "set_position",
+] as const;
 export type HubCommand = (typeof HUB_COMMANDS)[number];
 
 export const DEVICE_TYPES = ["light", "switch", "outlet", "cover", "sensor"] as const;
@@ -66,8 +77,11 @@ export type IntegrationStatus = z.infer<typeof IntegrationStatusSchema>;
 
 export const IntegrationListSchema = z.object({ integrations: z.array(IntegrationStatusSchema), persistent: z.boolean() });
 
+export const HUB_OUTCOMES = ["confirmed", "accepted", "simulated", "already_satisfied"] as const;
+export type HubOutcome = (typeof HUB_OUTCOMES)[number];
+
 export const HubCommandResponseSchema = z.object({
-  outcome: z.enum(["confirmed", "accepted", "simulated"]),
+  outcome: z.enum(HUB_OUTCOMES),
   delivery: z.string(),
   detail: z.string(),
   device: HubDeviceSchema,
@@ -140,3 +154,87 @@ export interface DevicePatchBody {
   controlEnabled?: boolean;
   acknowledgeRealControl?: boolean;
 }
+
+// ---------------------------------------------------------------- KNX/IP interface (hub >= 1.2)
+
+export const KNX_CONNECTION_TYPES = ["tunneling", "tunneling_tcp", "routing"] as const;
+export type KnxConnectionType = (typeof KNX_CONNECTION_TYPES)[number];
+
+export const KnxLinkStatusSchema = z
+  .object({
+    state: z.string(),
+    connectionType: z.string().optional(),
+    gateway: z.object({ host: z.string().nullable().optional(), name: z.string().nullable().optional() }).passthrough().nullable().optional(),
+    lastError: z.object({ code: z.string(), message: z.string() }).passthrough().nullable().optional(),
+  })
+  .passthrough();
+export type KnxLinkStatus = z.infer<typeof KnxLinkStatusSchema>;
+
+export const KnxInterfaceSchema = z.object({
+  source: z.enum(["environment", "hub", "none"]),
+  editable: z.boolean(),
+  config: z
+    .object({ connectionType: z.string(), host: z.string().nullable(), port: z.number().int(), routeBack: z.boolean() })
+    .nullable(),
+  secure: z.boolean(),
+  status: KnxLinkStatusSchema,
+  allowedNetworks: z.array(z.string()),
+  usbSupported: z.literal(false),
+});
+export type KnxInterface = z.infer<typeof KnxInterfaceSchema>;
+
+export interface KnxInterfaceInput {
+  connectionType: KnxConnectionType;
+  host: string | null;
+  port: number;
+  routeBack: boolean;
+}
+
+export const KnxUsbReportSchema = z.object({
+  supported: z.literal(false),
+  status: z.enum(["not_visible", "not_detected", "detected_no_access", "detected_unsupported"]),
+  message: z.string(),
+  guidance: z.string(),
+  devices: z.array(
+    z.object({
+      vendorId: z.string(),
+      productId: z.string(),
+      manufacturer: z.string().nullable(),
+      product: z.string().nullable(),
+      match: z.string(),
+    }),
+  ),
+  usbDevicesSeen: z.number().int(),
+  sysfsVisible: z.boolean(),
+  hidrawNodes: z.array(z.string()),
+});
+export type KnxUsbReport = z.infer<typeof KnxUsbReportSchema>;
+
+// ---------------------------------------------------------------- optional LLM interpreter (hub >= 1.2)
+
+export const AssistantInfoSchema = z.object({
+  llm: z.object({ enabled: z.boolean(), model: z.string().nullable(), host: z.string().nullable() }),
+});
+export type AssistantInfo = z.infer<typeof AssistantInfoSchema>;
+
+export const LLM_INTENTS = [
+  "turn_on",
+  "turn_off",
+  "toggle",
+  "set_brightness",
+  "adjust_brightness",
+  "query_state",
+  "greeting",
+  "help",
+  "unknown",
+] as const;
+
+export const AssistantInterpretSchema = z.object({
+  intent: z.enum(LLM_INTENTS),
+  value: z.number().int().nullable(),
+  language: z.enum(["en", "fr", "ar", "dz"]).nullable(),
+  valid: z.boolean(),
+  provider: z.literal("llm"),
+  model: z.string().nullable(),
+});
+export type AssistantInterpretation = z.infer<typeof AssistantInterpretSchema>;

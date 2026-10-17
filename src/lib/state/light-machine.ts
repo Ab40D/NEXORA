@@ -75,6 +75,7 @@ export const SOURCE_LABEL: Record<CommandSource, string> = {
   gesture: "hand gesture",
   voice: "voice command",
   test: "wizard test",
+  assistant: "Talk to SE7ENX",
 };
 
 export const BLOCK_REASON_TEXT: Record<BlockReason, string> = {

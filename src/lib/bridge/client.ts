@@ -2,6 +2,8 @@
  * Typed client for the SE7ENX Bridge API (contract v1).
  */
 import {
+  AssistantInfoSchema,
+  AssistantInterpretSchema,
   DeviceListSchema,
   HaConfigSchema,
   HaEntitiesSchema,
@@ -9,15 +11,22 @@ import {
   HubCommandResponseSchema,
   HubDeviceSchema,
   IntegrationListSchema,
+  KnxInterfaceSchema,
+  KnxUsbReportSchema,
   SafetySchema,
   ShellyIdentitySchema,
   type AddDeviceBody,
+  type AssistantInfo,
+  type AssistantInterpretation,
   type DevicePatchBody,
   type HaConfig,
   type HaEntity,
   type HubCommand,
   type HubCommandResponse,
   type HubDevice,
+  type KnxInterface,
+  type KnxInterfaceInput,
+  type KnxUsbReport,
   type Safety,
   type ShellyIdentity,
 } from "@/lib/hub/contract";
@@ -309,6 +318,43 @@ export class BridgeClient {
 
   homeAssistantEntities(): Promise<HaEntity[]> {
     return this.request("GET", "/integrations/homeassistant/entities", HaEntitiesSchema).then((r) => r.entities);
+  }
+
+  // ---- KNX/IP interface configured on the hub (hub >= 1.2) ----
+
+  knxInterface(): Promise<KnxInterface> {
+    return this.request("GET", "/integrations/knx", KnxInterfaceSchema);
+  }
+
+  configureKnxInterface(body: KnxInterfaceInput): Promise<KnxInterface> {
+    return this.request("PUT", "/integrations/knx", KnxInterfaceSchema, body);
+  }
+
+  async removeKnxInterface(): Promise<void> {
+    await this.request("DELETE", "/integrations/knx", null);
+  }
+
+  /** Waits (server side, up to ~12 s) for the connection handshake to finish and returns the real result. */
+  testKnxInterface(): Promise<KnxInterface> {
+    return this.request("POST", "/integrations/knx/test", KnxInterfaceSchema, {}, { timeoutMs: 20000 });
+  }
+
+  knxUsbReport(): Promise<KnxUsbReport> {
+    return this.request("GET", "/integrations/knx/usb", KnxUsbReportSchema);
+  }
+
+  // ---- optional LLM intent interpreter (hub >= 1.2) ----
+
+  assistantInfo(): Promise<AssistantInfo> {
+    return this.request("GET", "/assistant", AssistantInfoSchema);
+  }
+
+  assistantInterpret(body: {
+    text: string;
+    lang: "en" | "fr" | "ar" | "dz";
+    device?: { name: string; dimmable: boolean; on: boolean | null; brightness: number | null };
+  }): Promise<AssistantInterpretation> {
+    return this.request("POST", "/assistant/interpret", AssistantInterpretSchema, body, { timeoutMs: 20000 });
   }
 
   exportConfig(): Promise<unknown> {

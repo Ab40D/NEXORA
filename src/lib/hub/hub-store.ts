@@ -13,7 +13,8 @@ import { AdapterError, describeError } from "@/lib/adapters/types";
 import { BridgeClient, type EventStreamHandle } from "@/lib/bridge/client";
 import { clearBridgeSession, peekBridgeSession, saveBridgeSession } from "@/lib/connection/session";
 import { checkEndpointUrl } from "@/lib/net/endpoint";
-import type { AddDeviceBody, DevicePatchBody, HubCommand, HubDevice, IntegrationStatus, Safety } from "./contract";
+import type { CommandSource } from "@/lib/state/types";
+import type { AddDeviceBody, DevicePatchBody, HubCommand, HubDevice, HubOutcome, IntegrationStatus, Safety } from "./contract";
 
 export const APPLIANCE = process.env.NEXT_PUBLIC_SE7ENX_APPLIANCE === "true";
 
@@ -23,7 +24,11 @@ export interface CommandResultView {
   ok: boolean;
   text: string;
   hint?: string;
-  outcome?: "confirmed" | "accepted" | "simulated";
+  outcome?: HubOutcome;
+  /** machine-readable error code (e.g. STATE_UNKNOWN, DEVICE_OFFLINE) when ok is false */
+  code?: string;
+  /** HTTP status of a failed request, when known */
+  status?: number;
   at: number;
 }
 
@@ -41,7 +46,15 @@ interface HubStore {
   connect: () => Promise<void>;
   pair: (code: string, clientName: string) => Promise<void>;
   disconnect: () => void;
-  command: (id: string, command: HubCommand, params?: Record<string, unknown>) => Promise<void>;
+  /** Runs a command through the hub's single command pipeline. Resolves with the outcome (null if the device was busy). */
+  command: (
+    id: string,
+    command: HubCommand,
+    params?: Record<string, unknown>,
+    source?: CommandSource,
+  ) => Promise<CommandResultView | null>;
+  /** Re-reads the device's real state (used before answering "is the light on?"). Null on failure. */
+  refresh: (id: string) => Promise<HubDevice | null>;
   patch: (id: string, patch: DevicePatchBody) => Promise<void>;
   remove: (id: string) => Promise<void>;
   add: (body: AddDeviceBody) => Promise<HubDevice>;
@@ -156,23 +169,34 @@ export const useHub = create<HubStore>((set, get) => ({
     set({ status: "idle", devices: {}, order: [], integrations: [] });
   },
 
-  command: async (id, command, params = {}) => {
-    if (get().busy[id]) return;
+  command: async (id, command, params = {}, source = "manual") => {
+    if (get().busy[id]) return null;
     set((s) => ({ busy: { ...s.busy, [id]: true } }));
+    let result: CommandResultView;
     try {
-      const res = await hubClient().deviceCommand(id, command, params, `ui-${Date.now().toString(36)}-${++rid}`);
-      set((s) => ({
-        ...upsert(s, res.device),
-        results: { ...s.results, [id]: { ok: true, outcome: res.outcome, text: res.detail, at: Date.now() } },
-      }));
+      const res = await hubClient().deviceCommand(id, command, params, `ui-${Date.now().toString(36)}-${++rid}`, source);
+      result = { ok: true, outcome: res.outcome, text: res.detail, at: Date.now() };
+      set((s) => ({ ...upsert(s, res.device), results: { ...s.results, [id]: result } }));
     } catch (err) {
       const e = describeError(err);
-      set((s) => ({ results: { ...s.results, [id]: { ok: false, text: e.message, hint: e.hint, at: Date.now() } } }));
+      const status = err instanceof AdapterError ? err.status : undefined;
+      result = { ok: false, text: e.message, hint: e.hint, code: e.code, status, at: Date.now() };
+      set((s) => ({ results: { ...s.results, [id]: result } }));
     } finally {
       set((s) => ({ busy: { ...s.busy, [id]: false } }));
     }
+    return result;
   },
 
+  refresh: async (id) => {
+    try {
+      const device = await hubClient().refreshDevice(id);
+      set((s) => upsert(s, device));
+      return device;
+    } catch {
+      return null;
+    }
+  },
   patch: async (id, patch) => {
     const d = await hubClient().patchDevice(id, patch);
     set((s) => upsert(s, d));

@@ -7,7 +7,7 @@ export type LinkStatus = "idle" | "connecting" | "connected" | "reconnecting" | 
 
 export type OnOff = "on" | "off";
 
-export type CommandSource = "manual" | "lamp" | "keyboard" | "gesture" | "voice" | "test";
+export type CommandSource = "manual" | "lamp" | "keyboard" | "gesture" | "voice" | "test" | "assistant";
 
 /**
  * Lifecycle of a requested command.

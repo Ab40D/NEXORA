@@ -91,4 +91,5 @@ export const OUTCOME_LABEL = {
   confirmed: "Confirmed by the device",
   accepted: "Accepted, awaiting device confirmation",
   simulated: "Simulated (no hardware)",
+  already_satisfied: "Already in this state, nothing was sent",
 } as const;
