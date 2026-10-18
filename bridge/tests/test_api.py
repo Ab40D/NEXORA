@@ -39,6 +39,7 @@ def test_health_is_minimal_and_unauthenticated() -> None:
             "version": body["version"],
             "apiVersion": 1,
             "pairingRequired": True,
+            "auth": {"mode": "pairing", "setupRequired": True},
         }
         assert r.headers["x-content-type-options"] == "nosniff"
         assert r.headers["cache-control"] == "no-store"

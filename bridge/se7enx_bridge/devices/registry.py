@@ -281,6 +281,36 @@ class DeviceRegistry:
         self._publish(device_id)
         return self.device_json(device_id)
 
+    # ------------------------------------------------------------------ placement (building model)
+
+    def placement(self) -> dict[str, list[str]]:
+        """Room id → ids of the devices located in it."""
+        out: dict[str, list[str]] = {}
+        for d in self.store.config.devices:
+            if d.metadata.room_id:
+                out.setdefault(d.metadata.room_id, []).append(d.id)
+        return out
+
+    def set_room(self, device_id: str, room_id: str | None) -> dict[str, Any]:
+        """Place a device in a room (or none). Metadata only: the integration is not re-synced."""
+        cfg = self._get(device_id)
+        if cfg.metadata.room_id != room_id:
+            meta = cfg.metadata.model_copy(update={"room_id": room_id})
+            self.store.put_device(cfg.model_copy(update={"metadata": meta}))
+            self.store.save()
+            self._publish(device_id)
+        return self.device_json(device_id)
+
+    def clear_rooms(self, room_ids: set[str]) -> int:
+        changed = [d for d in self.store.config.devices if d.metadata.room_id in room_ids]
+        for d in changed:
+            self.store.put_device(d.model_copy(update={"metadata": d.metadata.model_copy(update={"room_id": None})}))
+        if changed:
+            self.store.save()
+            for d in changed:
+                self._publish(d.id)
+        return len(changed)
+
     async def remove(self, device_id: str, client: str) -> None:
         cfg = self._get(device_id)
         self.store.remove_device(device_id)

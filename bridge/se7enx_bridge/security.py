@@ -22,6 +22,8 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from .core.rbac import ALL as ALL_PERMISSIONS
+
 log = logging.getLogger("se7enx.security")
 
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
@@ -135,6 +137,14 @@ class Session:
     ip: str
     lights: dict[str, object] = field(default_factory=dict)
     recent_requests: dict[str, tuple[float, dict]] = field(default_factory=dict)
+    # Identity of the caller. Legacy pairing sessions (only possible while no owner account exists)
+    # act with full rights; account sessions carry the user's role and permissions, refreshed per request.
+    kind: str = "pairing"
+    user_id: str | None = None
+    username: str | None = None
+    role: str = "owner"
+    permissions: frozenset[str] = ALL_PERMISSIONS
+    transport: str = "bearer"
 
 
 def _hash(token: str) -> str:
@@ -185,6 +195,12 @@ class SessionStore:
         if self._by_hash.pop(session.token_hash, None) is not None:
             for fn in self._revoked_listeners:
                 fn(session)
+
+    def revoke_all(self) -> int:
+        sessions = list(self._by_hash.values())
+        for s in sessions:
+            self.revoke(s)
+        return len(sessions)
 
     def purge_expired(self) -> None:
         now = self.clock()

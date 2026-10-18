@@ -77,6 +77,12 @@ class Settings:
     llm_api_key: str | None = field(default=None, repr=False)
     shelly_poll_s: int = 5
     device_min_interval_ms: int = 300
+    # --- accounts (SE7ENX Core identity) ---
+    password_min_length: int = 15  # NIST SP 800-63B-4 minimum for single-factor passwords
+    session_idle_s: int = 2 * 3600  # signed-in session without "keep me signed in"
+    remember_ttl_s: int = 30 * 86400  # "keep me signed in": absolute lifetime
+    remember_idle_s: int = 7 * 86400
+    audit_retention_days: int = 365
 
     @property
     def secure(self) -> bool:
@@ -116,6 +122,10 @@ class Settings:
             "llm_model": self.llm_model,
             "llm_api_key": "***" if self.llm_api_key else None,
             "shelly_poll_s": self.shelly_poll_s,
+            "password_min_length": self.password_min_length,
+            "session_idle_min": self.session_idle_s // 60,
+            "remember_days": self.remember_ttl_s // 86400,
+            "audit_retention_days": self.audit_retention_days,
             "device_min_interval_ms": self.device_min_interval_ms,
         }
 
@@ -323,6 +333,10 @@ class Settings:
         kwargs["ha_verify_tls"] = as_bool("HA_VERIFY_TLS", d.ha_verify_tls)
         kwargs["shelly_poll_s"] = as_int("SHELLY_POLL_S", d.shelly_poll_s, 2, 300)
         kwargs["device_min_interval_ms"] = as_int("DEVICE_MIN_INTERVAL_MS", d.device_min_interval_ms, 0, 10_000)
+        kwargs["password_min_length"] = as_int("PASSWORD_MIN_LENGTH", d.password_min_length, 8, 64)
+        kwargs["session_idle_s"] = as_int("SESSION_IDLE_MINUTES", d.session_idle_s // 60, 5, 24 * 60) * 60
+        kwargs["remember_ttl_s"] = as_int("REMEMBER_DAYS", d.remember_ttl_s // 86400, 1, 90) * 86400
+        kwargs["audit_retention_days"] = as_int("AUDIT_RETENTION_DAYS", d.audit_retention_days, 1, 3650)
 
         llm_url, llm_model = get("LLM_URL"), get("LLM_MODEL")
         key, key_file = get("LLM_API_KEY"), get("LLM_API_KEY_FILE")

@@ -26,14 +26,23 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from xknx.dpt import DPTArray, DPTBinary
 
 from . import API_VERSION, __version__
+from .api_auth import build_auth_router, identity_exception_handlers
+from .api_building import build_building_router, building_exception_handlers
 from .api_devices import build_device_router
 from .api_knx import apply_stored_interface, build_knx_interface_router
 from .assistant import LlmInterpreter, build_assistant_router
+from .auth import Auth, client_ip
 from .config import Settings
+from .core.audit import AuditLog
+from .core.building import BuildingService
+from .core.db import Database
+from .core.identity import IdentityService
+from .core.rbac import PERMISSIONS, RoleMatrix
 from .devices.adapters.base import AdapterCallbacks, DeviceAdapter
 from .devices.model import DeviceError
 from .devices.registry import DeviceRegistry
 from .devices.store import ConfigStore
+from .errors import ApiError, error_response
 from .events import EventBroker
 from .group_address import GroupAddressError, GroupAddressPolicy, parse_group_address
 from .hosts import HostPolicy
@@ -53,29 +62,6 @@ IDEMPOTENCY_WINDOW_S = 120.0
 
 
 # =============================================================================== errors
-
-
-class ApiError(Exception):
-    def __init__(
-        self, status: int, code: str, message: str, hint: str | None = None, retry_after: float | None = None
-    ) -> None:
-        super().__init__(message)
-        self.status = status
-        self.code = code
-        self.message = message
-        self.hint = hint
-        self.retry_after = retry_after
-
-
-def error_response(
-    status: int, code: str, message: str, hint: str | None = None, retry_after: float | None = None
-) -> JSONResponse:
-    headers = {"Retry-After": str(max(1, round(retry_after)))} if retry_after else None
-    if status == 401:
-        headers = {**(headers or {}), "WWW-Authenticate": "Bearer"}
-    return JSONResponse(
-        {"error": {"code": code, "message": message, "hint": hint}}, status_code=status, headers=headers
-    )
 
 
 # =============================================================================== models
@@ -292,6 +278,18 @@ class BridgeState:
         factories.update(adapter_factories or {})
         self.registry = DeviceRegistry(settings, self.store, self.broker, factories)
         self.bridge_id = secrets.token_hex(6)
+        # SE7ENX Core: identities, roles, audit ledger (created before the pairing manager announces its code)
+        self.db = Database(settings.data_dir)
+        self.identity = IdentityService(
+            self.db,
+            password_min_length=settings.password_min_length,
+            session_ttl_s=settings.session_ttl_s,
+            session_idle_s=settings.session_idle_s,
+            remember_ttl_s=settings.remember_ttl_s,
+            remember_idle_s=settings.remember_idle_s,
+        )
+        self.audit = AuditLog(self.db, settings.audit_retention_days)
+        self.roles = RoleMatrix()
         self.pairing = PairingManager(settings.pairing_code, settings.pairing_ttl_s, on_new_code=self._announce_code)
         self.sessions = SessionStore(settings.session_ttl_s, settings.max_sessions)
         self.pair_limiter = SlidingWindowLimiter(5, 60.0)
@@ -301,10 +299,14 @@ class BridgeState:
         self.discover_limiter = SlidingWindowLimiter(2, 10.0)
         self.connect_limiter = SlidingWindowLimiter(6, 60.0)
         self.streams: dict[str, int] = {}
+        self.auth = Auth(self.identity, lambda: self.roles, self.sessions, self.audit)
+        self.building = BuildingService(self.store, self.registry)
         knx.on_status(lambda st: self.broker.publish("knx.status", st.to_dict()))
         knx.on_value(lambda ga, gv: self.broker.publish("ga.value", {"ga": ga}))
 
     def _announce_code(self, code: str) -> None:
+        if self.identity.count_users() > 0:
+            return  # accounts exist: pairing is disabled and the code has no use
         ttl = (
             "fixed via SE7ENX_PAIRING_CODE"
             if self.settings.pairing_code
@@ -312,7 +314,7 @@ class BridgeState:
         )
         log.warning(
             "\n\n    ┌──────────────────────────────────────────────┐\n"
-            "    │  SE7ENX Bridge pairing code:   %-12s  │\n"
+            "    │  SE7ENX setup / pairing code:  %-12s  │\n"
             "    │  %-44s│\n"
             "    └──────────────────────────────────────────────┘\n",
             format_code(code),
@@ -388,13 +390,24 @@ def create_app(
             log.info("Allowed hosts: %s (same-origin requests accepted)", ", ".join(settings.allowed_hosts))
         await knx_service.start()
         await state.registry.start()
+        state.roles = RoleMatrix(state.store.config.roles)
         await apply_stored_interface(settings, knx_service, state.registry)
+        if state.identity.count_users() == 0:
+            log.warning(
+                "No SE7ENX account exists yet: open the web app and create the owner account with the setup code."
+            )
+        state.audit.purge()
 
         async def rotate_codes() -> None:
+            ticks = 0
             while True:
                 await asyncio.sleep(30)
                 state.pairing.current_code()  # rotates (and announces) expired random codes
                 state.sessions.purge_expired()
+                state.identity.purge_expired()
+                ticks += 1
+                if ticks % 2880 == 0:  # once a day
+                    state.audit.purge()
 
         rotator = asyncio.create_task(rotate_codes())
         try:
@@ -406,6 +419,7 @@ def create_app(
             await state.registry.stop()
             await knx_service.stop()
             await interpreter.aclose()
+            state.db.close()
 
     app = FastAPI(
         title="SE7ENX Bridge",
@@ -437,6 +451,9 @@ def create_app(
     async def _device_error(_r: Request, e: DeviceError) -> JSONResponse:
         return error_response(e.status, e.code, e.message, e.hint)
 
+    for exc_type, handler in {**identity_exception_handlers(), **building_exception_handlers()}.items():
+        app.add_exception_handler(exc_type, handler)
+
     @app.exception_handler(RequestValidationError)
     async def _validation(_r: Request, e: RequestValidationError) -> JSONResponse:
         first = e.errors()[0] if e.errors() else {}
@@ -456,23 +473,10 @@ def create_app(
         return error_response(500, "INTERNAL_ERROR", "Unexpected bridge error. See the bridge logs.")
 
     # ------------------------------------------------------------------ auth
-    def client_ip(request: Request) -> str:
-        return request.client.host if request.client else "unknown"
-
-    async def require_session(request: Request) -> Session:
-        auth = request.headers.get("authorization", "")
-        scheme, _, token = auth.partition(" ")
-        if scheme.lower() != "bearer" or not token:
-            raise ApiError(401, "UNAUTHORIZED", "Missing bearer token.", "Pair this browser with the bridge first.")
-        session = state.sessions.authenticate(token.strip())
-        if session is None:
-            raise ApiError(
-                401,
-                "SESSION_INVALID",
-                "The session token is invalid, expired or revoked.",
-                "Pair again with the current code from the bridge console.",
-            )
-        return session
+    auth = state.auth
+    require = auth.require
+    require_session = require()
+    need = {p: require(p) for p in PERMISSIONS}
 
     def limit(limiter: SlidingWindowLimiter, key: str, what: str) -> None:
         ok, retry = limiter.hit(key)
@@ -518,13 +522,24 @@ def create_app(
             "service": "se7enx-bridge",
             "version": __version__,
             "apiVersion": API_VERSION,
-            "pairingRequired": True,
+            "pairingRequired": not auth.accounts_enabled,
+            "auth": {
+                "mode": "accounts" if auth.accounts_enabled else "pairing",
+                "setupRequired": not auth.accounts_enabled,
+            },
         }
 
     @r.post("/pair")
     async def pair(body: PairRequest, request: Request) -> dict[str, Any]:
         ip = client_ip(request)
         limit(state.pair_limiter, ip, "pairing attempts")
+        if auth.accounts_enabled:
+            raise ApiError(
+                403,
+                "PAIRING_DISABLED",
+                "Pairing is disabled because SE7ENX accounts are set up.",
+                "Sign in with your SE7ENX account instead.",
+            )
         locked = state.pairing.locked_for()
         if locked > 0:
             raise ApiError(
@@ -559,18 +574,22 @@ def create_app(
 
     @r.post("/session/revoke", status_code=204)
     async def revoke(session: Session = Depends(require_session)) -> Response:
-        state.sessions.revoke(session)
+        if session.kind == "account":
+            state.identity.revoke_session(session.id)
+            auth.forget(session.id)
+        else:
+            state.sessions.revoke(session)
         log.info("Session %s (%s) revoked by client", session.id, session.client_name)
         return Response(status_code=204)
 
     # ------------------------------------------------------------------ knx
     @r.get("/knx/status")
-    async def knx_status(_s: Session = Depends(require_session)) -> dict[str, Any]:
+    async def knx_status(_s: Session = Depends(need["integration.view"])) -> dict[str, Any]:
         return knx_service.status.to_dict()
 
     @r.post("/knx/connect")
     async def knx_connect(
-        body: ConnectRequest | None = None, session: Session = Depends(require_session)
+        body: ConnectRequest | None = None, session: Session = Depends(need["integration.configure"])
     ) -> dict[str, Any]:
         limit(state.connect_limiter, session.id, "connection attempts")
         target: GatewayTarget | None = None
@@ -600,19 +619,21 @@ def create_app(
         return status.to_dict()
 
     @r.post("/knx/disconnect")
-    async def knx_disconnect(session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def knx_disconnect(session: Session = Depends(need["integration.configure"])) -> dict[str, Any]:
         audit.info("client %s disconnected the KNX link", session.client_name)
         return (await knx_service.disconnect()).to_dict()
 
     @r.post("/knx/discover")
-    async def knx_discover(session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def knx_discover(session: Session = Depends(need["integration.configure"])) -> dict[str, Any]:
         if not settings.enable_discovery:
             raise ApiError(403, "DISCOVERY_DISABLED", "Interface discovery is disabled on this bridge.")
         limit(state.discover_limiter, session.id, "discovery requests")
         return {"gateways": await knx_service.discover()}
 
     @r.post("/knx/test")
-    async def knx_test(body: TestRequest | None = None, session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def knx_test(
+        body: TestRequest | None = None, session: Session = Depends(need["integration.configure"])
+    ) -> dict[str, Any]:
         """Connectivity self-test. Never writes to the bus (reads only if asked)."""
         checks: list[dict[str, Any]] = []
         st = knx_service.status
@@ -667,7 +688,7 @@ def create_app(
     # ------------------------------------------------------------------ lights
     @r.put("/lights/{light_id}")
     async def put_light(
-        light_id: str, body: LightRequest, session: Session = Depends(require_session)
+        light_id: str, body: LightRequest, session: Session = Depends(need["device.configure"])
     ) -> dict[str, Any]:
         if not LIGHT_ID_RE.match(light_id):
             raise ApiError(422, "INVALID_LIGHT_ID", "Light id must be 1-32 lowercase letters, digits or dashes.")
@@ -691,18 +712,18 @@ def create_app(
         return {"light": light.to_dict(), "state": state.light_state(light)}
 
     @r.get("/lights/{light_id}")
-    async def get_light_config(light_id: str, session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def get_light_config(light_id: str, session: Session = Depends(need["device.view"])) -> dict[str, Any]:
         light = get_light(session, light_id)
         return {"light": light.to_dict(), "state": state.light_state(light)}
 
     @r.delete("/lights/{light_id}", status_code=204)
-    async def delete_light(light_id: str, session: Session = Depends(require_session)) -> Response:
+    async def delete_light(light_id: str, session: Session = Depends(need["device.configure"])) -> Response:
         session.lights.pop(light_id, None)
         return Response(status_code=204)
 
     @r.get("/lights/{light_id}/state")
     async def light_state(
-        light_id: str, refresh: bool = False, session: Session = Depends(require_session)
+        light_id: str, refresh: bool = False, session: Session = Depends(need["device.view"])
     ) -> dict[str, Any]:
         light = get_light(session, light_id)
         if refresh:
@@ -784,19 +805,19 @@ def create_app(
 
     @r.post("/lights/{light_id}/on")
     async def light_on(
-        light_id: str, body: CommandRequest, session: Session = Depends(require_session)
+        light_id: str, body: CommandRequest, session: Session = Depends(need["device.control"])
     ) -> dict[str, Any]:
         return await _command(light_id, True, body, session)
 
     @r.post("/lights/{light_id}/off")
     async def light_off(
-        light_id: str, body: CommandRequest, session: Session = Depends(require_session)
+        light_id: str, body: CommandRequest, session: Session = Depends(need["device.control"])
     ) -> dict[str, Any]:
         return await _command(light_id, False, body, session)
 
     # ------------------------------------------------------------------ events
     @r.get("/events")
-    async def events(request: Request, session: Session = Depends(require_session)) -> StreamingResponse:
+    async def events(request: Request, session: Session = Depends(need["device.view"])) -> StreamingResponse:
         if (
             state.streams.get(session.id, 0) >= MAX_STREAMS_PER_SESSION
             or sum(state.streams.values()) >= MAX_STREAMS_TOTAL
@@ -812,7 +833,7 @@ def create_app(
             try:
                 yield sse("hello", {"bridgeId": state.bridge_id, "knx": knx_service.status.to_dict()})
                 while True:
-                    if not state.sessions.is_active(session):
+                    if not auth.is_active(session):
                         break
                     try:
                         ev = await asyncio.wait_for(sub.get(), timeout=PING_INTERVAL_S)
@@ -845,10 +866,26 @@ def create_app(
 
     app.include_router(r)
     app.include_router(
-        build_device_router(state.registry, require_session, limit, state.cmd_limiter, state.global_cmd_limiter)
+        build_auth_router(
+            settings=settings,
+            auth=auth,
+            identity=state.identity,
+            audit=state.audit,
+            store=state.store,
+            roles_ref=lambda: state.roles,
+            pairing=state.pairing,
+            pairing_sessions=state.sessions,
+            limit=limit,
+        )
     )
-    app.include_router(build_knx_interface_router(settings, knx_service, state.registry, require_session, limit))
-    app.include_router(build_assistant_router(interpreter, require_session, limit))
+    app.include_router(
+        build_building_router(auth=auth, building=state.building, registry=state.registry, audit=state.audit)
+    )
+    app.include_router(
+        build_device_router(state.registry, auth, state.audit, limit, state.cmd_limiter, state.global_cmd_limiter)
+    )
+    app.include_router(build_knx_interface_router(settings, knx_service, state.registry, require, limit))
+    app.include_router(build_assistant_router(interpreter, require, limit))
 
     if settings.ui_dir:
         from .ui import mount_ui

@@ -108,7 +108,9 @@ Tag = Annotated[str, Field(min_length=1, max_length=24), AfterValidator(_clean_t
 
 
 class DeviceMetadata(ApiModel):
+    # Free-text room label (legacy, kept for display). New: roomId references the building model.
     room: Annotated[str, AfterValidator(_clean_text)] | None = Field(default=None, max_length=48)
+    room_id: str | None = Field(default=None, pattern=r"^room-[0-9a-f]{8}$")
     tags: list[Tag] = Field(default_factory=list, max_length=10)
     # The same physical device exposed through another integration (e.g. a Shelly that is also an
     # HA entity). Linked devices are flagged in the UI instead of being merged silently.

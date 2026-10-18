@@ -15,6 +15,7 @@ dependencies = [
   "uvicorn[standard]>=0.50",
   "httpx2>=2.13,<3",  # Shelly local HTTP/RPC client (digest SHA-256)
   "websockets>=13",  # Home Assistant WebSocket client
+  "argon2-cffi>=23.1,<26",  # Argon2id password hashing (OWASP-recommended), MIT
 ]
 
 [project.optional-dependencies]
@@ -40,7 +41,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
 ignore = ["S101", "S104", "RUF012", "E501", "SIM108"]  # long strings are left to the formatter
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.Path"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "B011"]

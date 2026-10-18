@@ -3,6 +3,10 @@
 python -m se7enx_bridge              start the bridge (default)
 python -m se7enx_bridge scan         search the LAN for KNXnet/IP interfaces
 python -m se7enx_bridge check-config validate configuration and print it (secrets masked)
+python -m se7enx_bridge users        list SE7ENX accounts (no secrets)
+python -m se7enx_bridge reset-password <username>
+                                     print a one-time password reset code (account recovery for whoever
+                                     has access to this machine; valid 30 minutes, single use)
 """
 
 from __future__ import annotations
@@ -92,11 +96,69 @@ def cmd_scan(settings: Settings) -> None:
     asyncio.run(run())
 
 
+def _identity(settings: Settings) -> tuple[object, object]:
+    from .core.audit import AuditLog
+    from .core.db import Database
+    from .core.identity import IdentityService
+
+    if not settings.data_dir:
+        print(
+            "SE7ENX_DATA_DIR is not set: accounts live in the running hub's memory and cannot be managed from here.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    db = Database(settings.data_dir)
+    return IdentityService(db), AuditLog(db, settings.audit_retention_days)
+
+
+def cmd_users(settings: Settings) -> None:
+    from .core.identity import IdentityService, iso
+
+    ids, _ = _identity(settings)
+    assert isinstance(ids, IdentityService)
+    users = ids.list_users()
+    if not users:
+        print("No accounts yet. Open the web app and create the owner account with the setup code.")
+        return
+    for u in users:
+        state = "disabled" if u.disabled else ("no password yet" if not u.has_password else "active")
+        print(f"{u.username:<24} {u.role:<11} {state:<16} last sign-in: {iso(u.last_login_at) or 'never'}")
+
+
+def cmd_reset_password(settings: Settings, username: str | None) -> None:
+    from .core.audit import Actor, AuditLog
+    from .core.identity import IdentityService
+
+    if not username:
+        print("Usage: se7enx-bridge reset-password <username>", file=sys.stderr)
+        sys.exit(2)
+    ids, audit = _identity(settings)
+    assert isinstance(ids, IdentityService) and isinstance(audit, AuditLog)
+    found = ids.find_by_login(username)
+    if found is None:
+        print(f"No account named {username!r}. Run 'se7enx-bridge users' to list accounts.", file=sys.stderr)
+        sys.exit(1)
+    user = found[0]
+    code, meta = ids.issue_code("reset", ttl_s=30 * 60, user_id=user.id, created_by="cli")
+    audit.record(
+        "user.reset_code_issued",
+        actor=Actor(None, "host console", None),
+        source="cli",
+        target_type="user",
+        target_id=user.id,
+    )
+    print(f"One-time reset code for {user.username} ({user.role}): {code}")
+    print(f"Valid until {meta['expiresAt']}, single use. In the SE7ENX web app choose “I have a reset code”.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="se7enx-bridge", description="SE7ENX Bridge — KNX gateway for the SE7ENX Smart Light web app"
     )
-    parser.add_argument("command", nargs="?", default="serve", choices=["serve", "scan", "check-config"])
+    parser.add_argument(
+        "command", nargs="?", default="serve", choices=["serve", "scan", "check-config", "users", "reset-password"]
+    )
+    parser.add_argument("target", nargs="?", help="username (for reset-password)")
     parser.add_argument("--version", action="version", version=f"se7enx-bridge {__version__}")
     args = parser.parse_args()
     settings = _load()
@@ -104,6 +166,10 @@ def main() -> None:
         cmd_scan(settings)
     elif args.command == "check-config":
         print(json.dumps(settings.describe(), indent=2))
+    elif args.command == "users":
+        cmd_users(settings)
+    elif args.command == "reset-password":
+        cmd_reset_password(settings, args.target)
     else:
         cmd_serve(settings)
 

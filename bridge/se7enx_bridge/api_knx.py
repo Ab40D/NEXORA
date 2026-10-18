@@ -23,6 +23,7 @@ from fastapi.responses import Response
 from pydantic import Field
 
 from .config import Settings
+from .core.rbac import PERMISSIONS
 from .devices.knx_usb import scan_usb
 from .devices.model import ApiModel, DeviceError
 from .devices.registry import DeviceRegistry
@@ -102,19 +103,22 @@ def build_knx_interface_router(
     settings: Settings,
     knx: KnxService,
     registry: DeviceRegistry,
-    require_session: Callable[..., Awaitable[Session]],
+    require: Callable[[str], Callable[..., Awaitable[Session]]],
     limit: Callable[[SlidingWindowLimiter, str, str], None],
 ) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
+    need = {p: require(p) for p in PERMISSIONS}
     config_limiter = SlidingWindowLimiter(10, 60.0)
     usb_limiter = SlidingWindowLimiter(10, 60.0)
 
     @r.get("/integrations/knx")
-    async def get_knx(_s: Session = Depends(require_session)) -> dict[str, Any]:
+    async def get_knx(_s: Session = Depends(need["integration.view"])) -> dict[str, Any]:
         return _payload(settings, knx, registry)
 
     @r.put("/integrations/knx")
-    async def put_knx(body: KnxInterfaceRequest, session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def put_knx(
+        body: KnxInterfaceRequest, session: Session = Depends(need["integration.configure"])
+    ) -> dict[str, Any]:
         limit(config_limiter, session.id, "KNX interface changes")
         if env_configured(settings):
             raise DeviceError(
@@ -161,7 +165,7 @@ def build_knx_interface_router(
         return _payload(settings, knx, registry)
 
     @r.delete("/integrations/knx", status_code=204)
-    async def delete_knx(session: Session = Depends(require_session)) -> Response:
+    async def delete_knx(session: Session = Depends(need["integration.configure"])) -> Response:
         limit(config_limiter, session.id, "KNX interface changes")
         if env_configured(settings):
             raise DeviceError(
@@ -176,7 +180,7 @@ def build_knx_interface_router(
         return Response(status_code=204)
 
     @r.post("/integrations/knx/test")
-    async def test_knx(_s: Session = Depends(require_session)) -> dict[str, Any]:
+    async def test_knx(_s: Session = Depends(need["integration.configure"])) -> dict[str, Any]:
         """Wait for the current connection attempt to finish and report the real handshake result."""
         if knx.status.state == "connecting":
             finished = asyncio.Event()
@@ -194,7 +198,7 @@ def build_knx_interface_router(
         return _payload(settings, knx, registry)
 
     @r.get("/integrations/knx/usb")
-    async def knx_usb(session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def knx_usb(session: Session = Depends(need["integration.view"])) -> dict[str, Any]:
         limit(usb_limiter, session.id, "USB scans")
         return scan_usb()
 

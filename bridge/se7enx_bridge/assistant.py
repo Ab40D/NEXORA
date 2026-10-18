@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .config import Settings
+from .core.rbac import PERMISSIONS
 from .devices.model import ApiModel, DeviceError
 from .security import Session, SlidingWindowLimiter
 
@@ -190,19 +191,20 @@ class LlmInterpreter:
 
 def build_assistant_router(
     interpreter: LlmInterpreter,
-    require_session: Callable[..., Awaitable[Session]],
+    require: Callable[[str], Callable[..., Awaitable[Session]]],
     limit: Callable[[SlidingWindowLimiter, str, str], None],
 ) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
+    need = {p: require(p) for p in PERMISSIONS}
     limiter = SlidingWindowLimiter(10, 60.0)
     global_limiter = SlidingWindowLimiter(30, 60.0)
 
     @r.get("/assistant")
-    async def assistant_info(_s: Session = Depends(require_session)) -> dict[str, Any]:
+    async def assistant_info(_s: Session = Depends(need["assistant.use"])) -> dict[str, Any]:
         return {"llm": {"enabled": interpreter.enabled, "model": interpreter.model, "host": interpreter.host}}
 
     @r.post("/assistant/interpret")
-    async def interpret(body: InterpretRequest, session: Session = Depends(require_session)) -> dict[str, Any]:
+    async def interpret(body: InterpretRequest, session: Session = Depends(need["assistant.use"])) -> dict[str, Any]:
         if not interpreter.enabled:
             raise DeviceError("LLM_DISABLED", "No AI provider is configured on this hub.", status=404)
         limit(limiter, session.id, "AI requests")

@@ -24,13 +24,14 @@ from typing import Any, Literal
 
 from pydantic import Field, TypeAdapter, ValidationError
 
+from ..core.building_model import BuildingModel
 from .model import ApiModel, DeviceConfig, ShellyDevice
 
 log = logging.getLogger("se7enx.store")
 
 CONFIG_FILE = "config.json"
 SECRETS_FILE = "secrets.json"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: building model, role matrix, security settings
 
 
 class StoreError(Exception):
@@ -51,11 +52,23 @@ class KnxInterfaceSettings(ApiModel):
     route_back: bool = False
 
 
+class SecuritySettings(ApiModel):
+    # Who may create an account: nobody (admins create users), invited people, or anyone who can reach the hub.
+    registration: Literal["disabled", "invite", "open"] = "disabled"
+
+
+EditableRole = Literal["admin", "engineer", "technician", "user"]
+
+
 class HubConfig(ApiModel):
-    version: Literal[1] = SCHEMA_VERSION
+    version: Literal[1, 2] = SCHEMA_VERSION
     devices: list[DeviceConfig] = Field(default_factory=list, max_length=500)
     homeassistant: HomeAssistantSettings = Field(default_factory=HomeAssistantSettings)
     knx: KnxInterfaceSettings = Field(default_factory=KnxInterfaceSettings)
+    building: BuildingModel = Field(default_factory=BuildingModel)
+    # Permission overrides per role (the owner always has every permission). Empty = defaults.
+    roles: dict[EditableRole, list[str]] = Field(default_factory=dict)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
 
 
 _HUB_CONFIG = TypeAdapter(HubConfig)
@@ -101,6 +114,7 @@ class ConfigStore:
             try:
                 raw = json.loads(cfg_path.read_text(encoding="utf-8"))
                 self.config = _HUB_CONFIG.validate_python(raw)
+                self.config.version = SCHEMA_VERSION  # v1 → v2 adds only defaulted sections
             except (json.JSONDecodeError, ValidationError) as err:
                 # Fail fast instead of silently overwriting the user's configuration.
                 raise StoreError(
@@ -137,11 +151,25 @@ class ConfigStore:
         return next((d for d in self.config.devices if d.id == device_id), None)
 
     def put_device(self, device: DeviceConfig) -> None:
-        self.config.devices = [d for d in self.config.devices if d.id != device.id] + [device]
+        """Insert or replace (keeping the device's position in the list)."""
+        for i, d in enumerate(self.config.devices):
+            if d.id == device.id:
+                self.config.devices[i] = device
+                return
+        self.config.devices.append(device)
 
     def remove_device(self, device_id: str) -> None:
         self.config.devices = [d for d in self.config.devices if d.id != device_id]
         self._secrets.get("devices", {}).pop(device_id, None)
+
+    # ------------------------------------------------------------------ building model
+
+    def get_building(self) -> BuildingModel:
+        return self.config.building
+
+    def set_building(self, model: BuildingModel) -> None:
+        self.config.building = model
+        self.save()
 
     # ------------------------------------------------------------------ secrets
 
