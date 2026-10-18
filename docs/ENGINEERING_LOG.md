@@ -60,3 +60,38 @@ Test numbers are only recorded when the suite was actually run.
   - appliance suite against a real hub serving the static UI: **4/4**, twice in a row.
 - Not verified: real hardware (KNX/Shelly/HA, unchanged since Phase E); Docker image rebuild with `argon2-cffi`
   (pinned in `constraints.txt`, wheels exist for x86-64/arm64, but not built in this session); TOTP MFA (planned).
+
+## 2026-10-18 — "Fix existing issues and implement the final vision" (v2.0.0 work)
+
+### Root causes found (evidence, not guesses)
+- **Camera/microphone on phones and LAN PCs.** `http://<LAN-IP>` is not a secure context. Measured in Chromium:
+  `isSecureContext=false`, `navigator.mediaDevices` **undefined**. The same IP over HTTPS with the SE7ENX local CA
+  trusted (no ignore flags): secure, `getUserMedia` returned live audio and video tracks. The app also reported this
+  as "unsupported browser", because it checked the API before the secure context.
+- **Gestures on Linux desktops.** On software WebGL (SwiftShader/llvmpipe), the MediaPipe GPU delegate measured
+  **~2 fps** against **20–30 fps** on the CPU delegate. The same headless Chromium was used with the same video and model.
+  - The app always preferred GPU.
+  - The height engine reset dwell when frames were more than 300 ms apart. At 2 fps every frame reset it, so
+    **gestures could never trigger**.
+  - `minInFrame` 0.85 rejected raised hands.
+  - Gestures only reached the Experience or legacy lamp.
+- **Voice.** The Web Speech API was the only engine:
+  - Firefox has none;
+  - Chromium builds without Google keys fail with "network";
+  - Chrome and Safari send audio to the vendor.
+
+### Fixes and verification
+- Local HTTPS (`2050f3b`): a name-constrained private CA. Real OpenSSL handshakes confirm that a CA-signed
+  `example.com` certificate is rejected. The redirect helper refuses foreign hosts (421).
+- Gestures (`8d885b7`): a pose classifier tuned on real MediaPipe landmarks (16 fixture frames, confidence > 0.8),
+  a time-based recognizer, profiles, dispatch to devices and rooms, diagnostics, and runtime GPU→CPU switching.
+  E2E: a Chromium fake camera fed synthetic hand photos runs through MediaPipe → recognizer → profile → simulated
+  light on/off. **Passed** in 1.3 min.
+- Voice (`72e0580`): hub `/assistant/transcribe` plus the optional `speech/` service (faster-whisper).
+  - Found and fixed: faster-whisper 1.2.1 is incompatible with PyAV 19 (`metadata_errors`), so the service
+    decodes audio itself.
+  - E2E: Chromium fake mic → MediaRecorder (6.3 KB WebM/Opus) → hub → Whisper base (1.5 s on CPU) →
+    "Turn on the light." → hub sim light. **Passed** in 11 s.
+  - EN verified. FR/AR with espeak synthetic speech were **not** recognised by `base`; real-voice accuracy is
+    unverified.
+- Totals at this point: pytest 197, vitest 262, eslint, tsc and ruff clean.
