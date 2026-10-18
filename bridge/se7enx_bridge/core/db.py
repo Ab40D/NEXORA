@@ -128,6 +128,73 @@ MIGRATIONS: tuple[str, ...] = (
         attempts INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # 4 — room-scoped time-limited access, notifications, automations, scenes
+    """
+    ALTER TABLE users ADD COLUMN scoped INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE access_grants (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        scope_type TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        permissions TEXT NOT NULL,
+        starts_at REAL NOT NULL,
+        expires_at REAL,
+        note TEXT,
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        revoked_at REAL
+    );
+    CREATE INDEX access_grants_user ON access_grants(user_id);
+    CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        level TEXT NOT NULL,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        target_type TEXT,
+        target_id TEXT,
+        audience TEXT NOT NULL DEFAULT 'all',
+        dedupe_key TEXT
+    );
+    CREATE INDEX notifications_ts ON notifications(ts);
+    CREATE TABLE notification_reads (
+        notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        read_at REAL NOT NULL,
+        PRIMARY KEY (notification_id, user_id)
+    );
+    CREATE TABLE automations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        definition TEXT NOT NULL,
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        last_run_at REAL
+    );
+    CREATE TABLE automation_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        automation_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        trigger TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        finished_at REAL,
+        status TEXT NOT NULL,
+        trace TEXT NOT NULL DEFAULT '[]',
+        actor TEXT
+    );
+    CREATE INDEX automation_runs_auto ON automation_runs(automation_id, started_at);
+    CREATE TABLE scenes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        actions TEXT NOT NULL,
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    """,
 )
 
 

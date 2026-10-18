@@ -1,46 +1,33 @@
-# dependencies
-node_modules/
-.pnp
-.pnp.js
-
-# next.js
-.next/
-out/
-next-env.d.ts
-*.tsbuildinfo
-
-# generated assets (copied from node_modules by scripts/prepare-assets.mjs)
-public/mediapipe/
-
-# testing
-coverage/
-playwright-report/
-test-results/
-blob-report/
-
-# env files — never commit secrets
 .env
 .env.*
 !.env.example
-bridge/.env
-!bridge/.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
 
-# python
+# Generated files
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo
+*.egg-info/
+next-env.d.ts
+
+# Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-*.egg-info/
 
-# misc
-.DS_Store
-*.pem
-!bridge/certs/.gitkeep
-.vercel
-
-# Python build artefacts
-bridge/build/
+# Generated files
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo
 *.egg-info/
+__pycache__/
+*.py[cod]
+.venv/
+venv/

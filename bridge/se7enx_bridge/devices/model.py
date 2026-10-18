@@ -78,7 +78,7 @@ CommandName = Literal[
     "stop",
     "set_position",
 ]
-CommandSource = Literal["manual", "lamp", "keyboard", "gesture", "voice", "test", "assistant"]
+CommandSource = Literal["manual", "lamp", "keyboard", "gesture", "voice", "test", "assistant", "automation", "scene"]
 
 
 class ApiModel(BaseModel):
