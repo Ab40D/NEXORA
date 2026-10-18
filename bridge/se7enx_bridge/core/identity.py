@@ -30,6 +30,8 @@ from typing import Any
 from .db import Database
 from .passwords import PasswordRejectedError, burn_verification_time, check_password, hash_password, verify_password
 from .rbac import ROLES, outranks
+from .totp import new_recovery_code, new_secret, normalize_recovery_code, provisioning_uri
+from .totp import verify as verify_totp
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s.]+(\.[^@\s.]+)+$")
@@ -42,6 +44,9 @@ LOCK_AFTER_FAILURES = 5
 LOCK_BASE_S = 60
 LOCK_MAX_S = 900
 MAX_PREFERENCES_BYTES = 4096
+MFA_CHALLENGE_TTL_S = 300
+MFA_MAX_ATTEMPTS = 5
+RECOVERY_CODES = 10
 
 
 def iso(ts: float | None) -> str | None:
@@ -92,6 +97,7 @@ class User:
     updated_at: float
     last_login_at: float | None
     preferences: dict[str, Any]
+    mfa_enabled: bool = False
 
     def public(self) -> dict[str, Any]:
         return {
@@ -105,6 +111,7 @@ class User:
             "hasPassword": self.has_password,
             "createdAt": iso(self.created_at),
             "lastLoginAt": iso(self.last_login_at),
+            "mfaEnabled": self.mfa_enabled,
         }
 
 
@@ -199,6 +206,7 @@ class IdentityService:
             updated_at=row["updated_at"],
             last_login_at=row["last_login_at"],
             preferences=json.loads(row["preferences"] or "{}"),
+            mfa_enabled=bool(row["totp_enabled_at"]),
         )
 
     @staticmethod
@@ -602,6 +610,159 @@ class IdentityService:
 
     def revoke_invite(self, code_id: str) -> bool:
         return self.db.execute("DELETE FROM one_time_codes WHERE id = ? AND kind = 'invite'", (code_id,)) > 0
+
+    def confirm_password(self, user_id: str, password: str) -> None:
+        """Re-authentication for sensitive changes (2FA set-up/removal). Failures count as sign-in failures."""
+        row = self.db.one("SELECT username, password_hash FROM users WHERE id = ?", (user_id,))
+        if row is None:
+            raise IdentityError(404, "USER_NOT_FOUND", "This account no longer exists.")
+        key = normalize_login(row["username"])
+        locked = self.guard.locked_for(key)
+        if locked > 0:
+            raise IdentityError(
+                429, "TOO_MANY_ATTEMPTS", "Too many failed attempts. Wait a moment.", retry_after=locked
+            )
+        ok, _ = verify_password(row["password_hash"], password)
+        if not ok:
+            self.guard.failure(key)
+            raise IdentityError(401, "PASSWORD_INCORRECT", "The current password is incorrect.")
+
+    # ------------------------------------------------------------------ two-factor authentication (TOTP)
+
+    def totp_begin(self, user_id: str) -> tuple[str, str]:
+        """Start enrolment: a new secret is stored as *pending* until a valid code confirms it."""
+        user = self.require_user(user_id)
+        if user.mfa_enabled:
+            raise IdentityError(409, "MFA_ALREADY_ENABLED", "Two-factor authentication is already on.")
+        secret = new_secret()
+        self.db.execute("UPDATE users SET totp_pending = ? WHERE id = ?", (secret, user_id))
+        return secret, provisioning_uri(secret, user.username)
+
+    def _new_recovery_codes(self, conn: Any, user_id: str) -> list[str]:
+        conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
+        codes = [new_recovery_code() for _ in range(RECOVERY_CODES)]
+        now = self.clock()
+        for c in codes:
+            conn.execute(
+                "INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, ?)",
+                (user_id, hash_token(normalize_recovery_code(c)), now),
+            )
+        return codes
+
+    def totp_confirm(self, user_id: str, code: str) -> list[str]:
+        row = self.db.one("SELECT totp_pending, totp_enabled_at FROM users WHERE id = ?", (user_id,))
+        if row is None:
+            raise IdentityError(404, "USER_NOT_FOUND", "This account no longer exists.")
+        if row["totp_enabled_at"]:
+            raise IdentityError(409, "MFA_ALREADY_ENABLED", "Two-factor authentication is already on.")
+        if not row["totp_pending"]:
+            raise IdentityError(409, "MFA_NOT_STARTED", "Start the set-up again.")
+        step = verify_totp(row["totp_pending"], code, now=self.clock())
+        if step is None:
+            raise IdentityError(
+                400, "MFA_CODE_INVALID", "The code is not valid. Check the time on your phone and try again."
+            )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = ?, "
+                "totp_last_step = ?, updated_at = ? WHERE id = ?",
+                (self.clock(), step, self.clock(), user_id),
+            )
+            return self._new_recovery_codes(conn, user_id)
+
+    def check_second_factor(self, user_id: str, code: str | None = None, recovery_code: str | None = None) -> str:
+        """Verify a TOTP code (replay-protected) or consume a recovery code. Returns the method used."""
+        row = self.db.one("SELECT totp_secret, totp_last_step FROM users WHERE id = ?", (user_id,))
+        if row is None or not row["totp_secret"]:
+            raise IdentityError(409, "MFA_NOT_ENABLED", "Two-factor authentication is not on for this account.")
+        if code:
+            step = verify_totp(row["totp_secret"], code, now=self.clock(), last_step=row["totp_last_step"])
+            if step is not None:
+                self.db.execute("UPDATE users SET totp_last_step = ? WHERE id = ?", (step, user_id))
+                return "totp"
+        elif recovery_code:
+            h = hash_token(normalize_recovery_code(recovery_code))
+            with self.db.transaction() as conn:
+                hit = conn.execute(
+                    "SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL",
+                    (user_id, h),
+                ).fetchone()
+                if hit is not None:
+                    conn.execute("UPDATE recovery_codes SET used_at = ? WHERE id = ?", (self.clock(), hit["id"]))
+                    return "recovery"
+        raise IdentityError(401, "MFA_FAILED", "The verification code is not valid.")
+
+    def recovery_codes_left(self, user_id: str) -> int:
+        row = self.db.one("SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ? AND used_at IS NULL", (user_id,))
+        return int(row["n"]) if row else 0
+
+    def regenerate_recovery_codes(self, user_id: str) -> list[str]:
+        with self.db.transaction() as conn:
+            return self._new_recovery_codes(conn, user_id)
+
+    def totp_disable(self, user_id: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_enabled_at = NULL, "
+                "totp_last_step = NULL, updated_at = ? WHERE id = ?",
+                (self.clock(), user_id),
+            )
+            conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM mfa_challenges WHERE user_id = ?", (user_id,))
+
+    def begin_mfa_challenge(self, user: User, *, remember: bool, transport: str, client: str, ip: str) -> str:
+        """After a correct password: a short-lived, single-use token for the second step. No session yet."""
+        token = secrets.token_urlsafe(32)
+        now = self.clock()
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM mfa_challenges WHERE expires_at < ? OR user_id = ?", (now, user.id))
+            conn.execute(
+                "INSERT INTO mfa_challenges (id, user_id, token_hash, created_at, expires_at, remember, transport, client, ip) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    secrets.token_hex(8),
+                    user.id,
+                    hash_token(token),
+                    now,
+                    now + MFA_CHALLENGE_TTL_S,
+                    int(remember),
+                    transport,
+                    client[:80],
+                    ip,
+                ),
+            )
+        return token
+
+    def complete_mfa_challenge(
+        self, token: str, *, code: str | None, recovery_code: str | None
+    ) -> tuple[User, dict[str, Any], str]:
+        row = self.db.one("SELECT * FROM mfa_challenges WHERE token_hash = ?", (hash_token(token),))
+        now = self.clock()
+        if row is None or row["expires_at"] < now:
+            raise IdentityError(401, "MFA_EXPIRED", "The sign-in step expired. Enter your password again.")
+        user = self.require_user(row["user_id"])
+        key = normalize_login(user.username)
+        locked = self.guard.locked_for(key)
+        if locked > 0:
+            raise IdentityError(
+                429, "TOO_MANY_ATTEMPTS", "Too many failed attempts. Wait a moment.", retry_after=locked
+            )
+        if user.disabled:
+            raise IdentityError(403, "ACCOUNT_DISABLED", "This account is disabled.", "Ask an administrator.")
+        try:
+            method = self.check_second_factor(user.id, code, recovery_code)
+        except IdentityError:
+            self.guard.failure(key)
+            attempts = int(row["attempts"]) + 1
+            if attempts >= MFA_MAX_ATTEMPTS:
+                self.db.execute("DELETE FROM mfa_challenges WHERE id = ?", (row["id"],))
+            else:
+                self.db.execute("UPDATE mfa_challenges SET attempts = ? WHERE id = ?", (attempts, row["id"]))
+            raise
+        self.guard.success(key)
+        self.db.execute("DELETE FROM mfa_challenges WHERE id = ?", (row["id"],))
+        ctx = {"remember": bool(row["remember"]), "transport": row["transport"], "client": row["client"]}
+        return user, ctx, method
 
 
 def can_manage(actor_role: str, target_role: str) -> bool:

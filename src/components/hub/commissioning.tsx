@@ -24,9 +24,10 @@ const LEVEL_TONE: Record<VerificationLevel, "sim" | "neutral" | "accent" | "ok">
   verified: "ok",
 };
 
-export function VerificationBadge({ level }: { level: VerificationLevel | undefined }) {
+export function VerificationBadge({ level, showSimulated = false }: { level: VerificationLevel | undefined; showSimulated?: boolean }) {
   const { t } = useT();
-  if (!level) return null;
+  // device cards already show a "Simulated" integration badge: do not repeat it
+  if (!level || (level === "simulated" && !showSimulated)) return null;
   return (
     <Badge tone={LEVEL_TONE[level]} dot={level === "verified"}>
       <span data-testid="verification-level" data-level={level}>
@@ -128,7 +129,7 @@ export function CommissioningDialog({ device, open, onOpenChange }: { device: Hu
 
           <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-ink-300">{t("commission.current")}</span>
-            <VerificationBadge level={level} />
+            <VerificationBadge level={level} showSimulated />
             {assessment?.verifiedAt ? (
               <span className="text-xs text-ink-400">{t("commission.verifiedBy", { who: assessment.verifiedBy ?? "—", when: new Date(assessment.verifiedAt).toLocaleString() })}</span>
             ) : null}

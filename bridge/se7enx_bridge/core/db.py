@@ -101,6 +101,33 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX commissioning_device ON commissioning(device_id, ts);
     """,
+    # 3 — two-factor authentication (TOTP), recovery codes, pending sign-in challenges
+    """
+    ALTER TABLE users ADD COLUMN totp_secret TEXT;
+    ALTER TABLE users ADD COLUMN totp_pending TEXT;
+    ALTER TABLE users ADD COLUMN totp_enabled_at REAL;
+    ALTER TABLE users ADD COLUMN totp_last_step INTEGER;
+    CREATE TABLE recovery_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        code_hash TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        used_at REAL
+    );
+    CREATE INDEX recovery_codes_user ON recovery_codes(user_id);
+    CREATE TABLE mfa_challenges (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at REAL NOT NULL,
+        expires_at REAL NOT NULL,
+        remember INTEGER NOT NULL,
+        transport TEXT NOT NULL,
+        client TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0
+    );
+    """,
 )
 
 

@@ -65,6 +65,26 @@ class ResetRequest(_Credentials):
     new_password: str = Field(min_length=1, max_length=1024)
 
 
+class MfaLoginRequest(ApiModel):
+    mfa_token: str = Field(min_length=20, max_length=200)
+    code: str | None = Field(default=None, max_length=12)
+    recovery_code: str | None = Field(default=None, max_length=24)
+
+
+class PasswordOnly(ApiModel):
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class MfaCode(ApiModel):
+    code: str = Field(min_length=6, max_length=12)
+
+
+class MfaChange(ApiModel):
+    password: str = Field(min_length=1, max_length=1024)
+    code: str | None = Field(default=None, max_length=12)
+    recovery_code: str | None = Field(default=None, max_length=24)
+
+
 class PasswordChange(ApiModel):
     current_password: str = Field(min_length=1, max_length=1024)
     new_password: str = Field(min_length=1, max_length=1024)
@@ -292,7 +312,54 @@ def build_auth_router(
                 details={"reason": err.code},
             )
             raise
+        if user.mfa_enabled:
+            token = identity.begin_mfa_challenge(
+                user,
+                remember=body.remember,
+                transport="bearer" if (body.transport == "bearer" or cross_origin(request)) else "cookie",
+                client=body.client_name.strip(),
+                ip=ip,
+            )
+            audit.record(
+                "auth.login", actor=actor_of(user), outcome="pending", source="ui", ip=ip, details={"step": "mfa"}
+            )
+            return JSONResponse({"mfaRequired": True, "mfaToken": token, "methods": ["totp", "recovery"]})
         return issue(request, user, body, "auth.login")
+
+    @r.post("/auth/login/mfa")
+    async def login_mfa(body: MfaLoginRequest, request: Request) -> JSONResponse:
+        ip = client_ip(request)
+        wait = login_failures.blocked_for(ip)
+        if wait > 0:
+            raise ApiError(
+                429,
+                "RATE_LIMITED",
+                f"Too many failed sign-ins. Try again in {max(1, round(wait))} s.",
+                retry_after=wait,
+            )
+        if not (body.code or body.recovery_code):
+            raise ApiError(400, "MFA_CODE_REQUIRED", "Enter the code from your authenticator app or a recovery code.")
+        try:
+            user, ctx, method = identity.complete_mfa_challenge(
+                body.mfa_token, code=body.code, recovery_code=body.recovery_code
+            )
+        except IdentityError as err:
+            if err.status == 401:
+                login_failures.hit(ip)
+            audit.record("auth.mfa", outcome="failed", source="ui", ip=ip, details={"reason": err.code})
+            raise
+        creds = _Credentials(
+            remember=ctx["remember"], transport=ctx["transport"], client_name=ctx["client"] or "SE7ENX web"
+        )
+        if method == "recovery":
+            audit.record(
+                "auth.mfa",
+                actor=actor_of(user),
+                source="ui",
+                ip=ip,
+                details={"method": "recovery", "left": identity.recovery_codes_left(user.id)},
+            )
+        return issue(request, user, creds, "auth.login")
 
     @r.post("/auth/register")
     async def register(body: RegisterRequest, request: Request) -> JSONResponse:
@@ -412,6 +479,78 @@ def build_auth_router(
         )
         return me_json(identity.require_user(user.id), session.id)
 
+    # ---- two-factor authentication (TOTP) for the signed-in account
+    @r.get("/auth/mfa")
+    async def mfa_status(session: Session = Depends(need_session)) -> dict[str, Any]:
+        user = account(session)
+        return {
+            "enabled": user.mfa_enabled,
+            "recoveryCodesLeft": identity.recovery_codes_left(user.id) if user.mfa_enabled else 0,
+        }
+
+    @r.post("/auth/mfa/totp/setup")
+    async def mfa_setup(body: PasswordOnly, session: Session = Depends(need_session)) -> dict[str, Any]:
+        user = account(session)
+        limit(account_limiter, session.id, "account changes")
+        await cpu(identity.confirm_password, user.id, body.password)
+        secret, uri = identity.totp_begin(user.id)
+        return {"secret": secret, "otpauthUri": uri}
+
+    @r.post("/auth/mfa/totp/confirm")
+    async def mfa_confirm(body: MfaCode, request: Request, session: Session = Depends(need_session)) -> dict[str, Any]:
+        user = account(session)
+        limit(account_limiter, session.id, "account changes")
+        codes = identity.totp_confirm(user.id, body.code)
+        auth.forget_user(user.id, except_session_id=session.id)
+        identity.revoke_user_sessions(user.id, except_session_id=session.id)  # other sessions must sign in with 2FA
+        audit.record(
+            "auth.mfa_enabled",
+            actor=auth.actor(session),
+            source="ui",
+            ip=client_ip(request),
+            target_type="user",
+            target_id=user.id,
+        )
+        return {"recoveryCodes": codes}
+
+    @r.post("/auth/mfa/totp/disable")
+    async def mfa_disable(
+        body: MfaChange, request: Request, session: Session = Depends(need_session)
+    ) -> dict[str, Any]:
+        user = account(session)
+        limit(account_limiter, session.id, "account changes")
+        await cpu(identity.confirm_password, user.id, body.password)
+        identity.check_second_factor(user.id, body.code, body.recovery_code)
+        identity.totp_disable(user.id)
+        audit.record(
+            "auth.mfa_disabled",
+            actor=auth.actor(session),
+            source="ui",
+            ip=client_ip(request),
+            target_type="user",
+            target_id=user.id,
+        )
+        return {"enabled": False}
+
+    @r.post("/auth/mfa/recovery-codes")
+    async def mfa_new_codes(
+        body: MfaChange, request: Request, session: Session = Depends(need_session)
+    ) -> dict[str, Any]:
+        user = account(session)
+        limit(account_limiter, session.id, "account changes")
+        await cpu(identity.confirm_password, user.id, body.password)
+        identity.check_second_factor(user.id, body.code, body.recovery_code)
+        codes = identity.regenerate_recovery_codes(user.id)
+        audit.record(
+            "auth.mfa_codes_renewed",
+            actor=auth.actor(session),
+            source="ui",
+            ip=client_ip(request),
+            target_type="user",
+            target_id=user.id,
+        )
+        return {"recoveryCodes": codes}
+
     @r.get("/auth/sessions")
     async def my_sessions(session: Session = Depends(need_session)) -> dict[str, Any]:
         user = account(session)
@@ -527,6 +666,28 @@ def build_auth_router(
             details={"username": target.username, "role": target.role},
         )
         return Response(status_code=204)
+
+    @r.delete("/users/{user_id}/mfa")
+    async def reset_user_mfa(
+        request: Request, user_id: str = UserId, session: Session = Depends(need["user.manage"])
+    ) -> dict[str, Any]:
+        """Account recovery: turn off 2FA for a user who lost their phone (rank rule applies)."""
+        target = identity.require_user(user_id)
+        if target.id == session.user_id:
+            raise ApiError(403, "FORBIDDEN", "Use your own security settings (with your password and a code).")
+        manageable(session, target.role)
+        identity.totp_disable(user_id)
+        identity.revoke_user_sessions(user_id)
+        auth.forget_user(user_id)
+        audit.record(
+            "user.mfa_reset",
+            actor=auth.actor(session),
+            source="ui",
+            ip=client_ip(request),
+            target_type="user",
+            target_id=user_id,
+        )
+        return {"user": identity.require_user(user_id).public()}
 
     @r.post("/users/{user_id}/reset-code")
     async def user_reset_code(
