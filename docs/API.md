@@ -306,7 +306,7 @@ Command policy errors: `400 UNSUPPORTED_COMMAND`, `403 CONTROL_NOT_ENABLED`, `42
 In addition to the events above: `device.state` (full Device), `device.removed` (`{ id }`),
 `integration.status`, `safety`. These are hub-wide and sent to every session.
 
-## SE7ENX Core API: accounts, roles, building, ledger (hub ≥ 1.3, M1)
+## SE7ENX Core API: accounts, roles, building, ledger (M1, unreleased)
 
 ### Authentication modes
 

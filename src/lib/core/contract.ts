@@ -1,5 +1,5 @@
 /**
- * Typed contracts for the SE7ENX Core API (hub >= 1.3): accounts, roles, building model, audit ledger.
+ * Typed contracts for the SE7ENX Core API (M1, unreleased; the hub still reports 1.1.0): accounts, roles, building model, audit ledger.
  * Every hub response is validated with these schemas before the UI uses it.
  */
 import { z } from "zod";

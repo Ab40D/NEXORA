@@ -403,7 +403,7 @@ export class BridgeClient {
     return this.request("GET", "/config/export", null);
   }
 
-  // ------------------------------------------------------------------ SE7ENX Core: accounts (hub >= 1.3)
+  // ------------------------------------------------------------------ SE7ENX Core: accounts (M1)
 
   authStatus(): Promise<AuthStatus> {
     return this.request("GET", "/auth/status", AuthStatusSchema, undefined, { auth: false, timeoutMs: 6000 });
