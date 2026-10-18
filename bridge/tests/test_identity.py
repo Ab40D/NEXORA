@@ -306,3 +306,14 @@ def test_successful_sign_ins_are_not_rate_limited_but_failures_per_ip_are() -> N
             assert login(c, names[i % 3], "wrong passphrase entirely").status_code == 401
         blocked = login(c, "amina", OWNER_PW)
         assert blocked.status_code == 429 and blocked.json()["error"]["code"] == "RATE_LIMITED"
+
+
+def test_cookie_sessions_work_behind_a_tls_terminating_proxy() -> None:
+    """Browser page is https://hub.example (proxy), the hub sees plain http with the same Host."""
+    settings = account_settings(allowed_hosts=("hub.example",))
+    with TestClient(create_app(settings), base_url="http://hub.example") as c:
+        r = setup_owner(c, origin="https://hub.example")
+        assert r.status_code == 201 and r.json()["transport"] == "cookie"
+        assert c.post("/api/v1/safety/stop", headers={"Origin": "https://hub.example"}).status_code == 200
+        other = c.post("/api/v1/safety/resume", headers={"Origin": "https://evil.example"})
+        assert other.status_code == 403

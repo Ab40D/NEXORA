@@ -23,7 +23,8 @@ STRONG_PW = {
 
 def account_settings(data_dir: Path | None = None, **overrides: Any) -> Settings:
     """Appliance-like settings: the hub serves the UI (Host allowlist), so same-origin requests are accepted."""
-    return make_settings(None, allowed_hosts=("testserver",), data_dir=str(data_dir) if data_dir else None, **overrides)
+    kwargs: dict[str, Any] = {"allowed_hosts": ("testserver",), "data_dir": str(data_dir) if data_dir else None}
+    return make_settings(None, **{**kwargs, **overrides})
 
 
 def setup_owner(c: TestClient, *, transport: str = "cookie", origin: str = SAME_ORIGIN, **fields: Any) -> Any:

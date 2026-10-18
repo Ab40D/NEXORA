@@ -45,12 +45,15 @@ def is_https(request: Request) -> bool:
 
 
 def same_origin(request: Request) -> bool:
-    """Did this request come from a page served by this hub (same scheme, host and port)?"""
+    """Did this request come from a page served by this hub (same host and port)?
+
+    Only host:port is compared, like the origin allowlist: behind a TLS-terminating reverse proxy the page is
+    ``https://`` while the hub itself sees ``http``, and one host:port cannot serve both schemes.
+    """
     origin = request.headers.get("origin")
     host = (request.headers.get("host") or "").strip().lower()
     if origin:
-        parts = urlsplit(origin)
-        return bool(host) and parts.netloc.lower() == host and parts.scheme == request.url.scheme
+        return bool(host) and urlsplit(origin).netloc.lower() == host
     return request.headers.get("sec-fetch-site") == "same-origin"
 
 
