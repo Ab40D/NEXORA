@@ -422,7 +422,7 @@ Support helps make more time available for development, testing, documentation, 
 - **Website:** [se7en-bay.vercel.app](https://se7en-bay.vercel.app/)
 - **GitHub:** [@Ab40D](https://github.com/Ab40D)
 - **LinkedIn:** [Abdelkhalek Mammeri](https://www.linkedin.com/in/abdelkhalekmammeri/)
-- **YouTube:** [Watch the NEXORA demo](https://www.youtube.com/watch?v=lMxjzDLOLpM)
+- **YouTube:** [Watch the NEXORA demo](https://www.youtube.com/watch?v=jmIqzMuaxs8&t=1s)
 - **Ko-fi:** [ko-fi.com/se7enx](https://ko-fi.com/se7enx)
 
 ## License
