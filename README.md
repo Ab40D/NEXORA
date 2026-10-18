@@ -1,277 +1,513 @@
-# SE7ENX Smart Light Experience
+# NEXORA — Local-First Building Intelligence
 
-Control a real **KNX** light with **hand gestures**, **voice** and **manual controls** —
-or try everything instantly in a clearly labelled **simulation**. A premium 3D lamp
-reflects the state your installation actually reports.
+**Control your space. Connect your devices. Keep control local.**
 
-![Simulation mode on desktop](docs/screenshots/simulation-desktop.jpg)
+NEXORA is a self-hosted building automation project exploring a more natural way to interact with physical spaces. It combines hand gestures, voice commands, a visual control interface, and real-device integrations to make building control more accessible.
 
-| Live KNX — state confirmed by actuator feedback | Wizard — connectivity test | Mobile |
-| --- | --- | --- |
-| ![Live KNX](docs/screenshots/live-knx-confirmed.jpg) | ![Wizard test](docs/screenshots/wizard-connectivity-test.jpg) | ![Mobile](docs/screenshots/simulation-mobile.jpg) |
+The goal is to bring different devices and protocols into one interface without requiring a proprietary cloud platform.
 
-> **Audit status (2026-10-15).** A [technical & security audit](SECURITY_AUDIT.md) found the
-> project **ready for local demos, controlled tests on your own hardware (with restrictions) and a
-> public simulation-only demo (with restrictions)**. It is **not ready** for real users connecting
-> their own Home Assistant or for production with physical devices. The KNX path has **not** been
-> verified on real hardware, and the Home Assistant path only against a mock. See the
-> [deployment checklist](DEPLOYMENT_CHECKLIST.md).
+> **Project status:** Experimental development project. Simulation is available for exploration, while physical-device integrations require local configuration and careful testing. Review the security and hardware-validation documentation before connecting real equipment.
 
-## Run SE7ENX on your own hardware (local appliance, 1.1)
+[Support NEXORA on Ko-fi](https://ko-fi.com/se7enx) · [Report a bug](../../issues) · [Request a feature](../../issues)
 
-One container serves the web UI and the local hub. It connects your **Home Assistant**
-(server-side token), **Shelly** devices (by local IP, Gen1 and Gen2+) and **KNX** (explicit group
-address / DPT mapping), with no cloud backend, public domain or port forwarding.
+---
+
+## Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [User interface](#user-interface)
+- [Brightness and lighting control](#brightness-and-lighting-control)
+- [Authentication and device pairing](#authentication-and-device-pairing)
+- [Supported integrations](#supported-integrations)
+- [Installation with Docker](#installation-with-docker)
+- [Local development](#local-development)
+- [Connecting real devices](#connecting-real-devices)
+- [How it works](#how-it-works)
+- [Privacy and security](#privacy-and-security)
+- [Testing](#testing)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Support the project](#support-the-project)
+- [License](#license)
+
+## Overview
+
+Traditional building automation often requires separate applications, protocol-specific tools, or cloud-dependent services. NEXORA explores an alternative: a unified interface for interacting with connected spaces.
+
+The current project focuses on a lighting-control experience that can be extended toward a broader building intelligence platform.
+
+The long-term direction includes:
+
+- Homes, offices, hotels, and other connected buildings.
+- Local-first operation and self-hosted deployment.
+- Protocol integrations for KNX, Home Assistant, Shelly, MQTT, and other compatible systems.
+- Gesture-based and voice-based interaction.
+- A unified interface for device states, commands, and automation.
+- Future automation workflows and context-aware assistance.
+
+NEXORA is under active development. The roadmap describes the intended direction; it should not be interpreted as a claim that every planned feature is already implemented.
+
+## Features
+
+### Multiple ways to control a device
+
+**Manual controls**
+
+Use the interface to inspect the current state and issue commands directly. Manual control remains available when gesture recognition or voice recognition is unavailable.
+
+**Hand gestures**
+
+The application uses MediaPipe-based hand tracking to interpret supported gestures.
+
+The current interaction model uses hand position relative to configurable screen zones:
+
+- Raise an open hand above the ON threshold to request activation.
+- Move the hand below the OFF threshold to request deactivation.
+- Hold a gesture long enough to satisfy the dwell threshold.
+- Move away from the trigger zone to re-arm the interaction.
+
+Smoothing, confidence thresholds, cooldowns, and calibration help reduce accidental commands.
+
+Camera access is requested explicitly. Video frames are processed in the browser and are not uploaded by the application, although the MediaPipe library has its own telemetry behaviour described in the privacy section.
+
+**Voice commands**
+
+The voice interface uses the browser's Web Speech API where supported. Commands are restricted to an allowlist rather than interpreted as arbitrary instructions.
+
+Examples include:
+
+- `Light on`
+- `Turn the light off`
+- `Allume la lumière`
+- `شغّل الضوء`
+- `طفّي الضو`
+
+Supported recognition languages and on-device processing depend on the browser and its installed speech services.
+
+### Visual feedback
+
+The 3D lighting interface provides a visual representation of the controlled light.
+
+NEXORA distinguishes between simulated state, requested state, and confirmed device state. A command being accepted is not necessarily proof that the physical actuator has changed state.
+
+Where the integration supplies suitable feedback, the interface can use reported device state to update the display. If the state cannot be verified, it should be presented as unverified rather than assumed to be correct.
+
+### Simulation mode
+
+Simulation allows users to explore the interaction experience without connecting physical equipment.
+
+Simulation is separate from real-device operation. It must not be treated as evidence that a physical integration has been validated.
+
+### Local device integration
+
+The local appliance is designed to bring the interface and device connectivity into a self-hosted deployment. Depending on the configured integration, it can connect to Home Assistant, compatible Shelly devices, or a KNX installation.
+
+### Safety-oriented interaction
+
+The existing design includes explicit connection steps, a visible emergency-stop control, and safeguards around initial KNX commands. These controls reduce the risk of accidental switching, but they do not make the application a certified safety system.
+
+## User interface
+
+NEXORA is intended to provide one understandable interface for discovering, configuring, and controlling connected devices.
+
+The current lighting experience includes:
+
+- A 3D lamp with a visual state representation.
+- Manual lighting controls.
+- Gesture and voice interaction panels.
+- A guided connection wizard.
+- Connection and device-status feedback.
+- A local appliance interface for configuring device integrations.
+- Responsive layouts for desktop and mobile browsers.
+
+The exact controls available depend on the integration and the current application build.
+
+### Typical workflow
+
+1. Open NEXORA in a supported browser.
+2. Choose simulation or begin configuring a real integration.
+3. Connect the required local service or device.
+4. Complete the connection and pairing steps.
+5. Verify the device and its reported state.
+6. Test manual control before enabling gesture or voice commands.
+
+Never assume that a successful connection test proves that every physical command or feedback path works correctly.
+
+## Brightness and lighting control
+
+Lighting control can involve more than a simple ON/OFF command. Dimmable actuators expose a brightness value that must be mapped to the appropriate device object and data-point type.
+
+For KNX, the bridge supports a DPT 5.001 brightness value alongside DPT 1.001 switching. The configured ON level can be used where the applicable control path supports it.
+
+Brightness behaviour depends on the actual actuator, its group-address configuration, and the controls exposed by the current interface.
+
+Before using brightness control with physical equipment:
+
+1. Confirm that the actuator supports dimming.
+2. Identify the correct brightness communication object and group address.
+3. Verify the configured data-point type.
+4. Confirm that the value range and scaling match the device.
+5. Test the command and verify the resulting state using suitable feedback.
+
+**Current implementation note:** The available technical audit records DPT 5.001 support but lists a dedicated dimming slider as a limitation of the audited build. If a newer build adds a brightness slider or expanded dimming controls, update this section and the hardware test matrix to match the verified implementation.
+
+Scenes, colour temperature, RGB control, and multi-device lighting workflows should be treated as separate capabilities and documented only when implemented and tested.
+
+## Authentication and device pairing
+
+NEXORA has different connection mechanisms depending on the deployment and integration.
+
+### Local appliance pairing
+
+The local appliance uses a pairing-code workflow to establish a connection with the local hub. Follow the code and URL printed by the running service.
+
+In the audited implementation, pairing codes are single-use and rotate periodically. A restart may require pairing again because bridge sessions are stored in memory.
+
+Do not expose pairing codes in public logs, screenshots, or support posts.
+
+### Home Assistant sign-in
+
+The Home Assistant integration uses Home Assistant's own authentication flow rather than asking users to provide their Home Assistant password directly to NEXORA.
+
+The user signs in through the Home Assistant interface, and the application receives tokens needed for the connection. In the audited implementation, tokens are held in the browser tab's session storage, not in a NEXORA cloud database.
+
+Use a dedicated Home Assistant account with the minimum permissions required. The audited implementation notes that Home Assistant tokens may inherit the full permissions of the account and do not provide application-level scopes.
+
+### NEXORA user accounts
+
+A local pairing code or Home Assistant sign-in is not the same as a separate NEXORA username-and-password account system. Do not assume that a dedicated NEXORA account service, multi-user role system, or cloud identity provider is included unless it is present in the current release.
+
+## Supported integrations
+
+| Integration | Purpose | Important notes |
+|---|---|---|
+| KNX | Building lighting and compatible actuator control | Requires correct group addresses, DPT mappings, gateway configuration, and suitable feedback |
+| Home Assistant | Connect through an existing Home Assistant installation | Requires network reachability and the supported authentication flow |
+| Shelly | Control compatible local Shelly devices | Verify the model, local network address, and supported device API |
+| Simulation | Explore the interface without physical devices | Does not control hardware |
+
+The local appliance documentation describes support for compatible Shelly Gen1 and Gen2+ devices, Home Assistant, and KNX configuration. Compatibility should be checked against the specific model and current release.
+
+Other integrations, including MQTT, ESP32 devices, and additional automation platforms, are possible directions for future development; their presence in the roadmap does not guarantee that they are fully integrated today.
+
+## Installation with Docker
+
+Docker Compose is the recommended starting point for testing the local appliance. It packages the application and its local service components into a reproducible deployment.
+
+### Requirements
+
+- A Linux, macOS, or Windows host capable of running Docker.
+- Docker Engine or Docker Desktop.
+- Docker Compose v2.
+- Network access to any physical devices or services you intend to connect.
+- A supported browser for camera and microphone features.
+
+### 1. Clone the repository
 
 ```bash
-cd deploy/appliance && cp .env.example .env
-docker compose up -d --build        # then open http://<this machine>:8787 → Devices
-docker compose logs se7enx          # one-time pairing code
+git clone https://github.com/Ab40D/NEXORA.git
+cd NEXORA
 ```
 
-Guide: [docs/LOCAL_DEPLOYMENT.md](docs/LOCAL_DEPLOYMENT.md) · What is verified on real hardware and
-what is not: [docs/HARDWARE_TEST_MATRIX.md](docs/HARDWARE_TEST_MATRIX.md) · Design and plan:
-[docs/LOCAL_FIRST_PLAN.md](docs/LOCAL_FIRST_PLAN.md).
+If the repository is still published under another name, use the actual repository URL shown on GitHub.
 
-![Devices tab of the local appliance](docs/screenshots/appliance-devices.jpg)
+### 2. Configure the appliance
 
-## Highlights
+```bash
+cd deploy/appliance
+cp .env.example .env
+```
 
-* **Instant simulation** — opens with an interactive 3D lamp; nothing to install. Simulation is labelled everywhere and never touches hardware.
-* **Real KNX** via the **SE7ENX Bridge** (Python + xknx, runs on your LAN) or via your existing **Home Assistant** KNX integration.
-* **Honest state** — *simulated*, *requested* and *confirmed* state are kept separate. A command is "confirmed" only when the KNX interface returned a positive `L_Data.con`; the lamp shows the device as ON/OFF only when the actuator's **status address** (or a read response) says so — otherwise it says `UNVERIFIED`.
-* **Gestures** (MediaPipe; video frames are analysed on your device and never uploaded, but the MediaPipe library sends usage telemetry to Google, see [Privacy](#privacy)): raise an open hand above the ON line → ON, lower it below the OFF line → OFF; smoothing, dwell, cooldown, re-arm, confidence gating, calibration.
-* **Voice** (Web Speech API): strict allowlist — “Light on”, “Turn the light off”, *« Allume la lumière »*, *« Ferme la lumière »*, «شغّل الضوء», «طفّي الضو» …
-* **Safety** — visible emergency stop (header button or `Esc`), no automatic switching after connecting, explicit acknowledgement before the first test telegram, default-deny group-address policy on the bridge.
-* **Responsive & accessible** — phone/tablet/desktop, keyboard operable, visible focus, screen-reader announcements, reduced motion, 2D fallback without WebGL.
+Open `.env` in your editor and configure only the values required by the deployment guide.
+
+Do not publish your `.env` file. It may contain private network configuration, pairing settings, credentials, or certificate-related settings.
+
+### 3. Start the appliance
+
+```bash
+docker compose up -d --build
+```
+
+Check the container status:
+
+```bash
+docker compose ps
+```
+
+Inspect startup logs and obtain the pairing information:
+
+```bash
+docker compose logs se7enx
+```
+
+### 4. Open the interface
+
+Open the appliance address in your browser. The default port documented for the appliance is `8787`; use the protocol and address configured for your deployment.
+
+For a service running on the same computer, the address may be:
+
+```text
+http://localhost:8787
+```
+
+If TLS is enabled, use the configured HTTPS URL and ensure that your browser trusts the certificate. For access from another device, use the host's reachable LAN address rather than `localhost`.
+
+### 5. Connect a device
+
+Open the device interface, select the required integration, enter its configuration, and complete the pairing or authentication steps.
+
+Start with simulation or a non-critical test device. Verify connectivity and device feedback before enabling gesture or voice commands.
+
+### Stop or restart
+
+```bash
+docker compose stop
+docker compose start
+```
+
+To stop and remove the running Compose containers:
+
+```bash
+docker compose down
+```
+
+Persistent data and configuration may have separate storage requirements. Review the deployment guide before removing volumes or rebuilding an installation.
+
+### Installation documentation
+
+- `docs/LOCAL_DEPLOYMENT.md` — deployment, configuration, HTTPS, backup, and troubleshooting.
+- `docs/HARDWARE_TEST_MATRIX.md` — hardware validation status.
+- `DEPLOYMENT_CHECKLIST.md` — deployment checks and known risks.
+
+## Local development
+
+### Requirements
+
+- Node.js 20.9 or newer.
+- npm.
+- Python 3.11 or newer for the bridge.
+- Git.
+
+### Install the web application
+
+From the repository root:
+
+```bash
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+The simulation should be available without physical hardware.
+
+The installation step also prepares the MediaPipe runtime assets required by the gesture interface.
+
+### Run the bridge development stack
+
+For the bridge development environment:
+
+```bash
+cd bridge
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Return to the repository root before following the project's bridge-development instructions and test commands. The fake KNXnet/IP interface can be used to exercise protocol behaviour without writing to a physical KNX bus.
+
+Consult `bridge/README.md` and the development tools in the repository for the exact bridge startup command and test configuration.
+
+## Connecting real devices
+
+### KNX
+
+A KNX installation requires a compatible KNXnet/IP interface or router, a correctly configured bus, and valid group addresses.
+
+The documented bridge configuration includes settings such as:
+
+- KNX gateway address.
+- Allowed group addresses.
+- Switching and brightness DPT mappings.
+- Optional status or feedback addresses.
+- Allowed web application origins.
+- Local bridge pairing configuration.
+
+Use an allowlist for permitted group addresses. Do not expose a KNX gateway or the local bridge directly to the public internet.
+
+For the first physical test, select a non-critical light, verify the connection, read the current state where supported, and send a deliberate test command only after reviewing the configured addresses.
+
+### Home Assistant
+
+Home Assistant must be reachable from the browser using the supported connection method. The KNX integration must already be configured if the goal is to control KNX devices through Home Assistant.
+
+Use the documented sign-in flow and a dedicated account with appropriate permissions. Test state reporting and command behaviour against the actual Home Assistant version before relying on the integration.
+
+### Shelly
+
+For a compatible Shelly device, confirm its model and local IP address, then configure the supported integration in the appliance interface.
+
+Keep the device on a trusted local network. Do not expose device credentials or unrestricted local-control endpoints in a public deployment.
 
 ## How it works
 
-```
-Browser (Vercel-hosted UI) ──fetch/SSE──► SE7ENX Bridge (your LAN) ──KNXnet/IP──► KNX IP interface/router ──► bus ──► actuator ──► light
-            └──────────────WebSocket (HA OAuth)──────► Home Assistant ──KNX integration──┘
-```
+At a high level, NEXORA separates the user interface from the local integration layer.
 
-Vercel serves **only the UI** and `GET /api/health`. Serverless functions cannot reach
-your private LAN, send KNXnet/IP UDP or hold a tunnel, and the browser cannot speak
-raw UDP — so real KNX traffic always goes **browser → bridge (or HA) → KNX**.
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API contract: [docs/API.md](docs/API.md) ·
-Security: [docs/SECURITY.md](docs/SECURITY.md).
-
-## Documentation
-
-| Document | For | Contents |
-| --- | --- | --- |
-| [docs/LOCAL_DEPLOYMENT.md](docs/LOCAL_DEPLOYMENT.md) | Anyone installing SE7ENX at home | Docker Compose appliance: install, configuration, network addressing, HTTPS, backup, upgrade/rollback, troubleshooting |
-| [docs/HARDWARE_TEST_MATRIX.md](docs/HARDWARE_TEST_MATRIX.md) | Installers, reviewers | What was verified against fakes vs. real Shelly / Home Assistant / KNX equipment |
-| [CHANGELOG.md](CHANGELOG.md) | Everyone | Release notes |
-| [USER_GUIDE.md](USER_GUIDE.md) | Everyday users | Step-by-step use of simulation, gestures, voice, bridge and Home Assistant connection |
-| [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md) | Owners, installers, developers | Full specification: requirements, flows, KNX integration, privacy, configuration, compatibility matrix |
-| [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) | Operators, installers | Deployment gates, hardware and Home Assistant validation plans, operations |
-| [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | Everyone deciding on a deployment | Evidence-based findings, readiness decisions, remediation roadmap |
-| [PRE_DEPLOYMENT_REVIEW.md](PRE_DEPLOYMENT_REVIEW.md) | Anyone about to deploy or share the link | What data leaves the device, attack scenarios for a public site, verdicts for demo / real bridge / production |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Developers | Current architecture, traced command lifecycle, data map, proposed target architecture |
-| [docs/SECURITY.md](docs/SECURITY.md) · [docs/API.md](docs/API.md) · [bridge/README.md](bridge/README.md) | Developers, installers | Security model, bridge API contract, bridge installation |
-| [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) | Reviewers | What was built and how it was verified |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Everyone | Building-OS roadmap M1–M8 with verified status |
-| [docs/RESEARCH_AND_DECISIONS.md](docs/RESEARCH_AND_DECISIONS.md) | Developers, reviewers | Sources (dated), competitor/standards/library assessments, decision log |
-| [docs/INNOVATION_BACKLOG.md](docs/INNOVATION_BACKLOG.md) | Product, developers | 15 scored ideas with prior-art notes |
-| [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) | Developers | What was done, decided and verified, by date |
-
-## Privacy
-
-* **Camera:** starts only after **Enable camera**. Frames and hand landmarks are processed in the
-  browser and are never uploaded or recorded. The **MediaPipe Tasks Vision** library does send
-  **usage telemetry** to Google (`odml.pa.googleapis.com`) about every 60 s while hand tracking runs.
-  It contains the SDK version, task type and latency statistics, and is sent with your IP address,
-  browser user agent and the page origin. It includes **no images, landmarks or audio**. This was
-  confirmed by network capture during the audit ([SE7-03](SECURITY_AUDIT.md)); the library offers no
-  opt-out.
-* **Microphone:** only during an explicit **Listen** or a 60 s hands-free session. Most browsers
-  send audio to their vendor's speech service (Google/Apple) unless on-device recognition is active.
-* **Storage:** settings in `localStorage`; bridge and Home Assistant session tokens in the tab's
-  `sessionStorage`; no cookies; no server-side database. Details:
-  [TECHNICAL_SPECIFICATION.md §7](TECHNICAL_SPECIFICATION.md#7-privacy--security).
-
-## Quick start (local development)
-
-Requirements: Node.js ≥ 20.9 (npm), for the bridge Python ≥ 3.11.
-
-```bash
-npm install          # also copies the MediaPipe WASM runtime into public/mediapipe
-npm run dev          # http://localhost:3000 — simulation works immediately
+```text
+Browser interface
+    ├── Manual commands
+    ├── Hand-gesture recognition
+    ├── Voice commands
+    └── Visual device state
+             |
+             v
+      Local application / bridge
+             |
+       ┌─────┼───────────┐
+       v     v           v
+      KNX  Home Assistant  Shelly
+       |       |             |
+       v       v             v
+   Physical devices and reported state
 ```
 
-Try a full real-KNX flow **without hardware** (real bridge + xknx talking to a fake
-KNXnet/IP interface that identifies itself as `SE7ENX FAKE KNX (TEST ONLY)`):
+The exact communication path depends on the selected integration. In a browser-hosted deployment, a local bridge or Home Assistant provides access to services that a public web frontend cannot directly reach on a private network.
 
-```bash
-cd bridge && python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
-python tools/dev_stack.py --port 8787 --pairing-code DEMO-2026
-# Wait for the banner, then use its "Bridge URL" line (here http://127.0.0.1:8787).
-# In the app: Connect → Connect to the hub → Local KNX Bridge → http://127.0.0.1:8787 → code DEMO-2026
-# Group address 0/0/1, status address 0/0/2
-```
+The application should distinguish a requested command from a confirmed device state. A successful HTTP request, accepted command, or transport acknowledgement is not necessarily proof that the physical device changed state.
 
-The console also shows `SE7ENX FAKE KNX (TEST ONLY) on udp://127.0.0.1:<random port>`. That is the
-simulated KNX interface the bridge connects to by itself. It is **not** the bridge URL, and entering
-it in the app ends in "Cannot reach the SE7ENX Bridge".
+## Privacy and security
 
-## Connect a real KNX light
+NEXORA is designed around local deployment, but local-first does not automatically mean that every dependency operates entirely offline.
 
-### Option A — SE7ENX Bridge (recommended for KNX IP interfaces/routers)
+### Camera
 
-1. Install the bridge on a computer/Raspberry Pi in the **same network** as your KNX IP
-   interface — see [bridge/README.md](bridge/README.md) (venv, Docker or systemd).
-2. Configure it (`bridge/.env.example`): your interface (`SE7ENX_KNX_GATEWAY_IP`),
-   the light's addresses (`SE7ENX_ALLOWED_GROUP_ADDRESSES=0/0/1,0/0/2`) and your web
-   app origin (`SE7ENX_ALLOWED_ORIGINS=https://your-app.vercel.app`).
-3. Start it and note the **pairing code** in its log.
-4. In the app: **Connect KNX → Local KNX Bridge**, enter the bridge URL, pair, run the
-   connectivity test (no telegrams are written), enter the light's **group address**
-   (+ DPT) and **status address**, read the current state, then — after the safety
-   acknowledgement — send a test ON/OFF. Finally enable gestures and/or voice.
+Camera access begins only after the user enables it. The application processes hand-tracking frames in the browser and does not upload or record those frames as part of its gesture workflow.
 
-### Option B — Home Assistant
+The audited MediaPipe Tasks Vision library sends usage telemetry to Google. The recorded audit describes telemetry containing SDK version, task type, latency statistics, IP address, browser user agent, and page origin. It does not include camera images, landmarks, or audio in that telemetry.
 
-Requirements: Home Assistant with the **KNX integration** configured, reachable over
-**HTTPS** from your device (e.g. Nabu Casa remote UI or your own domain). No HA
-configuration changes are needed: HA's OAuth token endpoint accepts cross-origin
-requests and the WebSocket API is not subject to CORS.
+### Microphone
 
-**Connect KNX → Home Assistant**, enter the HA URL and **Sign in with Home Assistant**.
-You log in on your own HA login page; SE7ENX never sees your password and never asks
-you to create a long-lived access token. HA issues an access token (30 min, refreshed
-automatically) and a **refresh token that stays valid in HA for up to 90 days after its
-last use**. Both are kept in that browser tab's `sessionStorage` and carry the **full
-rights of the HA user**, because HA tokens have no scopes. Disconnect asks HA to revoke
-them (best effort). **Use a dedicated non-admin HA user** and see
-[SE7-01](SECURITY_AUDIT.md). This path has only been tested against a mock HA server.
-Capabilities:
+Microphone access is user-initiated through the voice interface. Depending on the browser and configuration, speech recognition may send audio to the browser vendor's speech service. On-device recognition availability varies.
 
-| HA account | Commands | Bus confirmation | Device state |
-| --- | --- | --- | --- |
-| Administrator | `knx.send` | outgoing `knx_event` observed | live `knx_event` + `knx.read` responses |
-| Regular user | `knx.send` | not available (reported as *accepted*) | `knx.read` with response (recent HA versions) |
+### Credentials and storage
 
-## Deploy the web app to Vercel
+The audited implementation stores settings in browser local storage and connection tokens in session storage. It does not use a NEXORA server-side database for those browser sessions.
 
-1. Push this repository to GitHub/GitLab and **import it in Vercel** (framework
-   preset *Next.js*; build command `npm run build`, install `npm install` — defaults).
-2. **No environment variables are required** and none may contain secrets. Optional:
-   `NEXT_PUBLIC_DEFAULT_BRIDGE_URL` (pre-filled bridge URL), `SE7ENX_FRAME_ANCESTORS`
-   (allow embedding; default `'none'`), `NEXT_PUBLIC_HAND_MODEL_URL`, `NEXT_PUBLIC_MEDIAPIPE_WASM_BASE`.
-   Variables read in `next.config.ts` are applied **at build time** — redeploy after changes.
-3. The build copies the MediaPipe WASM runtime into `public/mediapipe` and verifies the
-   SHA-256 of the self-hosted hand model (`public/models/hand_landmarker.task`).
-4. `.vercelignore` keeps `bridge/` out of the deployment.
-5. Add the deployment URL (e.g. `https://se7enx.vercel.app`) to the bridge's
-   `SE7ENX_ALLOWED_ORIGINS`.
-6. Check `https://<your-app>/api/health` → `{"ok":true,…,"knx":{"handledHere":false}}`.
+Protect local configuration files, pairing codes, Home Assistant tokens, KNX Secure keys, and certificates. Never commit real credentials or private keys to the public repository.
 
-### Reaching a LAN bridge from the HTTPS deployment
+### Physical-device safety
 
-| Setup | Works in |
-| --- | --- |
-| `http://127.0.0.1:8787` (bridge on the same computer) | Chrome, Edge, Firefox — not Safari |
-| `https://bridge.<tailnet>.ts.net` via **Tailscale Serve** | All browsers, phones included (recommended) |
-| `https://<LAN-IP>:8787` with a trusted certificate (mkcert) | All browsers that trust the certificate |
-| `http://<LAN-IP>:8787` | Chrome/Edge 142+ after allowing **Local network access**; blocked in Safari/Firefox |
+Gesture and voice controls are convenience features, not safety-rated controls. Camera errors, speech recognition mistakes, network interruptions, stale feedback, or device faults can cause unexpected results.
 
-The app detects these cases, warns in the wizard, and annotates requests with
-`targetAddressSpace` where Chrome needs it. Full options: [bridge/README.md](bridge/README.md#reaching-the-bridge-from-the-web-app).
+Keep manual control available and use the emergency-stop functionality where provided. Do not use NEXORA as the sole control path for life-safety, security-critical, or hazardous equipment.
 
-## Supported hardware
+### Before exposing a service
 
-* **Gateways**: any KNXnet/IP **tunnelling interface** (UDP tunnelling v1, TCP tunnelling v2,
-  KNX Secure tunnelling) or **KNX IP router** (routing, secure routing) supported by xknx 4.x.
-  The interface needs a free tunnel slot. KNX Secure keys stay on the bridge.
-* **Actuators**: switch actuator channels with a **DPT 1.001** switching object (ON/OFF), or
-  dimming actuators via a **DPT 5.001** brightness object (ON sends the configured level).
-  A **status/feedback object** on its own group address is strongly recommended — without it
-  the real device state cannot be confirmed.
-* Physical KNX hardware was **not available** while building this release; the KNX path was
-  verified end to end against a protocol-level fake KNXnet/IP interface (see the
-  [implementation report](IMPLEMENTATION_REPORT.md)).
-
-## Gestures
-
-1. **Gesture** tab → **Enable camera** (the browser asks for permission; video stays on your device; the MediaPipe library sends usage telemetry without images to Google, see [Privacy](#privacy)).
-2. Raise an **open hand** above the cyan line and hold ~0.5 s → ON. Lower it below the amber
-   line and hold → OFF. After a trigger, move the hand out of the zone to re-arm.
-3. **Calibrate** adapts the lines to your position (hold low, then high). Tune hold time,
-   cooldown and thresholds; switch *Send gesture commands* off to only preview tracking.
-4. Good light and the hand fully in frame help; with low tracking confidence nothing is inferred.
-
-## Voice
-
-1. **Voice** tab → **Enable voice commands** (asks for the microphone once, records nothing).
-2. Press **Listen** and say a command, or start a **60 s hands-free** session.
-3. Languages: English, French, Arabic (Algerian Darija and MSA). Only allowlisted phrases
-   work; negations (“don't turn the light on”) and anything else are ignored.
-
-Browser support varies: Chrome and Safari provide speech recognition (usually through
-Google's/Apple's online service — the UI says so); Firefox does not enable it by default;
-Chrome 139+ can recognize on-device after a language-pack download (opt-in switch).
-Manual control always works.
+- Do not forward the local bridge port directly to the internet.
+- Use HTTPS where required by the deployment.
+- Restrict allowed origins and KNX group addresses.
+- Use dedicated accounts with minimum permissions.
+- Verify certificate handling and token storage.
+- Review `SECURITY_AUDIT.md` and `PRE_DEPLOYMENT_REVIEW.md`.
+- Validate the actual hardware path before using the system operationally.
 
 ## Testing
 
+The repository's documented test commands include:
+
 ```bash
-npm run lint           # ESLint (Next.js core-web-vitals + TypeScript + React Compiler rules)
-npm run typecheck      # tsc --noEmit
-npm test               # Vitest: unit + integration (mock bridge, mock HA WebSocket, contract vs real bridge)
-npm run build          # production build
-npx playwright install chromium && npm run test:e2e   # browser tests (starts next + the bridge dev stack)
-cd bridge && python -m pytest && ruff check .          # bridge tests incl. real xknx ↔ fake KNXnet/IP interface
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-Security probes used by the audit (bridge abuse cases, browser storage/revocation, network
-egress): see [audit/README.md](audit/README.md).
+For browser tests:
 
-## Troubleshooting
-
-| Problem | What to check |
-| --- | --- |
-| Lamp shows `SIMULATION` | You are in simulation — use **Connect KNX**. Simulation never controls hardware. |
-| "Cannot reach the SE7ENX Bridge" | Bridge running? Is this the **bridge's** URL (printed at startup, default port 8787; dev stack: the "Bridge URL" banner line)? It is not the KNX interface's address (UDP 3671) and not the dev stack's `udp://…` fake-interface port. `SE7ENX_HOST` not `127.0.0.1` when using another device? Bridge log says `Rejected request from origin '…'`: add that origin to `SE7ENX_ALLOWED_ORIGINS`. Docker appliance: open its own address (it serves the app). Mixed-content rules (table above). |
-| "Pairing code is wrong or has expired" | Codes are single-use and rotate every 15 min — use the newest one in the bridge log. |
-| `GA_NOT_ALLOWED` | Add the address to `SE7ENX_ALLOWED_GROUP_ADDRESSES` on the bridge. |
-| `KNX_CONFIRMATION_TIMEOUT` / `KNX_NEGATIVE_CONFIRMATION` | Interface not on the bus, bus power missing, interface overloaded. |
-| ON confirmed but lamp shows "waiting for feedback" | Wrong status address or the actuator sends no feedback. |
-| `ON · UNVERIFIED` | No status address configured — the device state cannot be confirmed. |
-| Live updates stop behind a proxy | Disable buffering/compression for `/api/v1/events`. |
-| Camera: "permission denied" / "in use" | Allow the camera in site settings; close other apps using it. Requires HTTPS or localhost. |
-| Voice not available | Browser without Web Speech API (e.g. Firefox) — use gestures or manual control. |
-| Home Assistant sign-in loops / fails | HA must be reachable over HTTPS from this device; start sign-in again from the wizard (stale callbacks are refused for safety). |
-
-## Limitations
-
-* One light per wizard session (the bridge API supports up to 16 lights per session).
-* DPT 1.001 and 5.001 only; no dimming slider/scenes.
-* Gesture recognition depends on lighting, camera quality and device performance; it is a
-  convenience input, not a safety function — manual control and the emergency stop remain primary.
-* Speech recognition availability, accuracy and privacy depend on the browser vendor.
-* Routing (multicast) cannot provide bus confirmation; non-admin Home Assistant users get no bus confirmation.
-* The bridge keeps sessions in memory — restarting it requires pairing again.
-* **Not verified on real KNX hardware or a real Home Assistant**; TCP tunnelling, KNX Secure and routing are implemented via xknx but untested.
-* After a read timeout or a KNX reconnect, "Device confirmed" can show a stale cached value ([SE7-02](SECURITY_AUDIT.md)).
-* The emergency stop applies to the current browser only; the bridge has no roles or kill switch ([SE7-04](SECURITY_AUDIT.md), [SE7-07](SECURITY_AUDIT.md)).
-* Full list of known weaknesses: [SECURITY_AUDIT.md](SECURITY_AUDIT.md#4-findings-register).
-
-## Project structure
-
+```bash
+npx playwright install chromium
+npm run test:e2e
 ```
-src/app/                 Next.js app router (page, layout, /api/health)
-src/components/          UI: lamp (R3F + SVG fallback), panels, wizard, primitives
-src/lib/                 domain logic: knx, state, commands, adapters, bridge client, ha, gesture, voice, net
-tests/unit|integration|e2e   Vitest + Playwright
-bridge/                  SE7ENX Bridge (FastAPI + xknx), tests, fake KNXnet/IP interface, Docker/systemd
-docs/                    API contract, architecture, security, screenshots
-audit/                   security probes + raw results referenced by SECURITY_AUDIT.md
+
+For the Python bridge:
+
+```bash
+cd bridge
+python -m pytest
+ruff check .
 ```
+
+The project has previously been tested with automated tests and a protocol-level fake KNXnet/IP interface. Such tests help validate application logic and protocol behaviour, but they do not replace testing against physical KNX interfaces, actuators, real Home Assistant installations, or every supported browser.
+
+Consult `IMPLEMENTATION_REPORT.md`, `SECURITY_AUDIT.md`, and `docs/HARDWARE_TEST_MATRIX.md` for the validation status associated with the release.
+
+## Known limitations
+
+The following limitations were documented in the available technical audit and should be rechecked against newer code before a release:
+
+- Physical KNX hardware validation was not completed for the audited build.
+- The Home Assistant integration was tested against a mock rather than a full real installation.
+- The audited UI supported DPT 1.001 switching and DPT 5.001 brightness mapping, but did not include a dedicated dimming slider.
+- The main lighting workflow focused on one light per wizard session.
+- Some KNX modes, including TCP tunnelling, KNX Secure, and routing, were implemented through the protocol library but were not fully validated on hardware.
+- Bridge sessions were stored in memory, requiring pairing again after a restart.
+- Gesture and speech behaviour varies by camera, lighting, microphone, browser, and recognition service.
+- Some state-confirmation scenarios may require further validation, particularly after timeouts or reconnections.
+- The audited emergency-stop behaviour applied to the current browser and did not provide a system-wide hardware kill switch.
+- The documented authentication flow does not imply a complete NEXORA account and role-management system.
+
+These limitations are part of the engineering status, not a guarantee that every later build has the same behaviour. Check the current source and release notes before relying on any feature.
+
+## Roadmap
+
+The long-term direction is to expand from a lighting-control experience into a broader building intelligence platform.
+
+Potential development areas include:
+
+- Improved brightness and multi-device lighting controls.
+- More integrations for KNX, Shelly, Home Assistant, MQTT, and ESP32-based devices.
+- Unified device discovery and capability mapping.
+- Automation rules and reusable scenarios.
+- More comprehensive state feedback and diagnostics.
+- Better local authentication, permissions, and multi-user support.
+- Expanded mobile and accessibility support.
+- Local AI-assisted interaction and context-aware automation.
+- Improved installation, upgrades, and hardware compatibility testing.
+
+The roadmap is a plan, not a statement that these features are already available. Current implementation status should be tracked in `docs/ROADMAP.md` and the release changelog.
+
+## Contributing
+
+Contributions, bug reports, documentation improvements, and reproducible test cases are welcome.
+
+Before opening a pull request:
+
+1. Review the existing architecture and security documentation.
+2. Keep secrets, local configuration, and private certificates out of commits.
+3. Add tests for new behaviour where practical.
+4. Document hardware requirements and validation status.
+5. Avoid describing mocked or simulated behaviour as verified physical-device support.
+
+For bugs or feature requests, open an issue through the repository's GitHub Issues page.
+
+## Support the project
+
+NEXORA is an independent development project focused on local-first building automation, accessible device control, and experimentation with connected spaces.
+
+If you find the project useful or want to support continued development, you can contribute through Ko-fi:
+
+**[Support NEXORA on Ko-fi](https://ko-fi.com/se7enx)**
+
+Support helps fund development time, testing hardware, integration work, documentation, and future improvements. Donations are voluntary and do not purchase guaranteed features, support response times, or commercial service-level agreements.
 
 ## License
 
-MIT for this project's code. Third-party: xknx (MIT), MediaPipe Tasks Vision and the hand
-landmark model (Apache-2.0), Three.js/R3F/Drei (MIT), Radix UI (MIT), Next.js (MIT).
+This project is intended to use the MIT License. See the repository's `LICENSE` file for the actual terms.
+
+Third-party components remain subject to their respective licenses. Review the licenses and notices distributed with the relevant dependencies and model assets before redistribution.
