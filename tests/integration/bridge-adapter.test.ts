@@ -64,7 +64,14 @@ describe("BridgeClient", () => {
     const e = await dead.health().catch((x: unknown) => x);
     expect(e).toBeInstanceOf(AdapterError);
     expect((e as AdapterError).code).toBe("BRIDGE_UNREACHABLE");
-    expect((e as AdapterError).hint).toContain("https://se7enx.example");
+    const hint = (e as AdapterError).hint ?? "";
+    expect(hint).toContain("https://se7enx.example");
+    // the two most common causes: wrong address (e.g. the KNX interface's) and a missing origin
+    expect(hint).toMatch(/default port 8787/);
+    expect(hint).toMatch(/Bridge URL/);
+    expect(hint).toMatch(/3671/);
+    expect(hint).toContain("Rejected request from origin 'https://se7enx.example'");
+    expect(hint).toContain("SE7ENX_ALLOWED_ORIGINS");
   });
 
   it("surfaces bridge error codes and hints", async () => {

@@ -391,7 +391,7 @@ plain-HTTP default to the bridge (SE7-05), and a client-only emergency stop (SE7
 | Problem | What to check |
 | --- | --- |
 | Lamp shows `SIMULATION` | You are in simulation; use **Connect KNX**. Simulation never controls hardware |
-| "Cannot reach the SE7ENX Bridge" | Bridge running? URL and port right? `SE7ENX_HOST` not `127.0.0.1` when connecting from another device? App origin listed in `SE7ENX_ALLOWED_ORIGINS`? Mixed-content rules (§6.6)? |
+| "Cannot reach the SE7ENX Bridge" | Bridge running? Is it the bridge's own URL (printed at startup, default port 8787), not the KNX interface's (UDP 3671) or the dev stack's internal fake-interface port? `SE7ENX_HOST` not `127.0.0.1` when connecting from another device? App origin listed in `SE7ENX_ALLOWED_ORIGINS` (the bridge logs `Rejected request from origin '…'` otherwise)? Mixed-content rules (§6.6)? The browser reports both causes as the same network error, so the app cannot tell them apart |
 | Chrome asks to allow "local network access" | Expected for `http://<LAN-IP>` bridges in Chrome/Edge 142+; allow it, or use HTTPS (Tailscale Serve) |
 | "Pairing code is wrong or has expired" | Random codes are single-use and rotate every 15 min; use the newest code from the bridge log |
 | `PAIRING_LOCKED` | 20 failed attempts lock pairing for 5 min for everyone; wait, then use the newest code. Repeated locks may mean someone is guessing |

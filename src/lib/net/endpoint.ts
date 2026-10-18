@@ -107,6 +107,13 @@ export function checkEndpointUrl(
     warnings,
   };
 
+  if (opts.kind === "bridge" && url.port === "3671") {
+    // A common mix-up: the KNX interface's address instead of the bridge's.
+    warnings.push(
+      "Port 3671 is the KNXnet/IP port of KNX interfaces, not the SE7ENX Bridge. Enter the bridge's own address — it prints it when it starts (default port 8787).",
+    );
+  }
+
   const pageIsHttps = opts.pageProtocol === "https:";
   if (url.protocol === "http:" && pageIsHttps) {
     if (opts.kind === "homeassistant") {

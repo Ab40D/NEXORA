@@ -122,7 +122,8 @@ pip install -e ".[dev]"
 python -m pytest            # 98 tests: config, security, GA vectors, API, real xknx ↔ fake interface
 ruff check . && ruff format --check .
 python tools/fake_knx_interface.py --port 3671      # FAKE interface (testing only)
-python tools/dev_stack.py --port 8799               # real bridge + fake interface in one process (demos/e2e)
+python tools/dev_stack.py --port 8799               # real bridge + fake interface in one process (demos/e2e);
+                                                    # enter the banner's "Bridge URL", not the fake udp:// port
 ```
 
 The fake interface speaks real KNXnet/IP (connect, heartbeat, description,
@@ -141,6 +142,6 @@ read responses) and identifies itself as `SE7ENX FAKE KNX (TEST ONLY)`.
 | Command confirmed, lamp stays "waiting for feedback" | Status address wrong, status object not linked, or actuator sends no feedback. |
 | Read state never answers | Read flag not set on the actuator object; feedback telegrams still work. |
 | `GA_NOT_ALLOWED` | Add the address to `SE7ENX_ALLOWED_GROUP_ADDRESSES`. |
-| Browser shows "Cannot reach the SE7ENX Bridge" | URL/port, `SE7ENX_HOST` still `127.0.0.1`, origin missing in `SE7ENX_ALLOWED_ORIGINS`, mixed-content rules (see table above). |
+| Browser shows "Cannot reach the SE7ENX Bridge" | Wrong URL/port (use the bridge's own URL, default port 8787, not the KNX interface's 3671 or the dev stack's fake `udp://` port), `SE7ENX_HOST` still `127.0.0.1`, origin missing in `SE7ENX_ALLOWED_ORIGINS` (the bridge logs `Rejected request from origin '…'`), mixed-content rules (see table above). |
 | Live updates missing behind a proxy | The proxy buffers/compresses SSE — disable for `/api/v1/events` (bridge already sends `Cache-Control: no-transform`). |
 | Docker: connects but no telegrams arrive | Use `network_mode: host`, or `SE7ENX_KNX_ROUTE_BACK=true`, or TCP tunnelling. |

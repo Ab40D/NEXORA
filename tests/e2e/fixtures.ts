@@ -22,9 +22,11 @@ export async function asReturningVisitor(target: Page | BrowserContext): Promise
 
 export const test = base.extend<{ showIntro: boolean }>({
   showIntro: [false, { option: true }],
-  page: async ({ page, showIntro }, use) => {
+  // Playwright's fixture callback is conventionally named `use`; it is renamed here so the React
+  // hooks lint rule does not mistake it for React's `use()` hook.
+  page: async ({ page, showIntro }, provide) => {
     if (!showIntro) await asReturningVisitor(page);
-    await use(page);
+    await provide(page);
   },
 });
 

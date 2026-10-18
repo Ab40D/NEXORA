@@ -48,10 +48,26 @@ test.describe("wizard validation", () => {
 
   test("unreachable bridge produces an actionable error", async ({ page }) => {
     await openBridgeStep(page);
+    // Nothing listens here over HTTP, just like the dev stack's internal fake-KNX UDP port that
+    // users mistook for the bridge URL ("Cannot reach the SE7ENX Bridge at http://127.0.0.1:57096").
     await page.getByLabel("Bridge URL").fill("http://127.0.0.1:9");
     await page.getByRole("button", { name: "Check bridge" }).click();
-    await expect(page.getByText(/Cannot reach the SE7ENX Bridge/)).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/SE7ENX_ALLOWED_ORIGINS/)).toBeVisible();
+    await expect(page.getByText(/Cannot reach the SE7ENX Bridge at http:\/\/127\.0\.0\.1:9/)).toBeVisible({ timeout: 15_000 });
+    const origin = new URL(page.url()).origin;
+    const hint = page.getByText(/SE7ENX_ALLOWED_ORIGINS/);
+    await expect(hint).toBeVisible();
+    await expect(hint).toContainText("default port 8787");
+    await expect(hint).toContainText("“Bridge URL” line");
+    await expect(hint).toContainText("UDP port 3671");
+    await expect(hint).toContainText(`Rejected request from origin '${origin}'`);
+  });
+
+  test("warns when the KNX interface port is entered instead of the bridge", async ({ page }) => {
+    await openBridgeStep(page);
+    await page.getByLabel("Bridge URL").fill("http://192.168.1.20:3671");
+    await expect(page.getByText(/Port 3671 is the KNXnet\/IP port of KNX interfaces/)).toBeVisible();
+    await page.getByLabel("Bridge URL").fill("http://192.168.1.20:8787");
+    await expect(page.getByText(/Port 3671 is the KNXnet\/IP port/)).toHaveCount(0);
   });
 });
 

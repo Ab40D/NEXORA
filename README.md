@@ -104,9 +104,14 @@ KNXnet/IP interface that identifies itself as `SE7ENX FAKE KNX (TEST ONLY)`):
 ```bash
 cd bridge && python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
 python tools/dev_stack.py --port 8787 --pairing-code DEMO-2026
-# In the app: Connect KNX → Local KNX Bridge → http://127.0.0.1:8787 → code DEMO-2026
+# Wait for the banner, then use its "Bridge URL" line (here http://127.0.0.1:8787).
+# In the app: Connect → Connect to the hub → Local KNX Bridge → http://127.0.0.1:8787 → code DEMO-2026
 # Group address 0/0/1, status address 0/0/2
 ```
+
+The console also shows `SE7ENX FAKE KNX (TEST ONLY) on udp://127.0.0.1:<random port>`. That is the
+simulated KNX interface the bridge connects to by itself. It is **not** the bridge URL, and entering
+it in the app ends in "Cannot reach the SE7ENX Bridge".
 
 ## Connect a real KNX light
 
@@ -225,7 +230,7 @@ egress): see [audit/README.md](audit/README.md).
 | Problem | What to check |
 | --- | --- |
 | Lamp shows `SIMULATION` | You are in simulation — use **Connect KNX**. Simulation never controls hardware. |
-| "Cannot reach the SE7ENX Bridge" | Bridge running? URL/port right? `SE7ENX_HOST` not `127.0.0.1` when using another device? Web origin in `SE7ENX_ALLOWED_ORIGINS`? Mixed-content rules (table above). |
+| "Cannot reach the SE7ENX Bridge" | Bridge running? Is this the **bridge's** URL (printed at startup, default port 8787; dev stack: the "Bridge URL" banner line)? It is not the KNX interface's address (UDP 3671) and not the dev stack's `udp://…` fake-interface port. `SE7ENX_HOST` not `127.0.0.1` when using another device? Bridge log says `Rejected request from origin '…'`: add that origin to `SE7ENX_ALLOWED_ORIGINS`. Docker appliance: open its own address (it serves the app). Mixed-content rules (table above). |
 | "Pairing code is wrong or has expired" | Codes are single-use and rotate every 15 min — use the newest one in the bridge log. |
 | `GA_NOT_ALLOWED` | Add the address to `SE7ENX_ALLOWED_GROUP_ADDRESSES` on the bridge. |
 | `KNX_CONFIRMATION_TIMEOUT` / `KNX_NEGATIVE_CONFIRMATION` | Interface not on the bus, bus power missing, interface overloaded. |

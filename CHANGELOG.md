@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Dev stack showed the wrong address.** `bridge/tools/dev_stack.py` printed only the internal fake
+  KNX interface (`127.0.0.1:<random UDP port>`), never the bridge URL. Entering that address in the
+  app failed with "Cannot reach the SE7ENX Bridge". The dev stack now prints a banner once the
+  bridge is listening: Bridge URL, pairing code, allowed origins and the simulated light. The fake
+  interface is marked *internal, not the bridge URL*. If the port is taken, it says so and
+  suggests `--port`. Regression tests: `bridge/tests/test_dev_stack.py`.
+- **"Cannot reach the SE7ENX Bridge" hint.** It now names the usual causes: not the bridge's own
+  URL (default port 8787; not the KNX interface's 3671); the origin not allowed, recognisable by the
+  bridge's `Rejected request from origin '…'` log line; or, with the Docker appliance, opening
+  its own address instead. The browser cannot tell these causes apart. The bridge's
+  `Cross-Origin-Resource-Policy: same-origin` header also blocks `no-cors` probes, so the hint lists
+  both rather than guessing.
+- The bridge URL field warns when port **3671** (KNXnet/IP) is entered.
+- One ESLint error in `tests/e2e/fixtures.ts` (Playwright's `use` callback flagged as a React
+  hook).
+
 ## 1.1.0 (2026-10-17): local-first hub
 
 ### Added

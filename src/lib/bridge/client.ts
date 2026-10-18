@@ -129,8 +129,13 @@ export class BridgeClient {
     }
     return new AdapterError("BRIDGE_UNREACHABLE", `Cannot reach the SE7ENX Bridge at ${this.baseUrl}.`, {
       hint:
-        `Check that the bridge is running and the URL/port are correct, and that this device can reach it (same LAN or tailnet). ` +
-        `The bridge must allow this site's origin (${this.appOrigin}) in SE7ENX_ALLOWED_ORIGINS. ` +
+        // The browser cannot tell "nothing is listening" from "origin not allowed" (both are opaque
+        // network errors; the bridge's CORP header also blocks no-cors probes), so list both and
+        // point at the bridge log, which is unambiguous.
+        `Check that the bridge is running and that this is its web address: the bridge prints it when it starts (default port 8787; the dev stack prints a “Bridge URL” line). ` +
+        `The KNX interface's own address (UDP port 3671, or the dev stack's internal fake-interface port) is not the bridge URL. ` +
+        `This device must be able to reach the bridge (same LAN or tailnet). ` +
+        `If the bridge logs “Rejected request from origin '${this.appOrigin}'”, add ${this.appOrigin} to SE7ENX_ALLOWED_ORIGINS and restart it; with the SE7ENX Docker appliance you can instead open the appliance's own address, which serves this app. ` +
         `For http:// LAN addresses, allow “local network access” when the browser asks; Safari/Firefox require https://.`,
       cause: err,
     });

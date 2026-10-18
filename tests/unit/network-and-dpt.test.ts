@@ -48,6 +48,15 @@ describe("checkEndpointUrl", () => {
     expect(r.warnings.join(" ")).toMatch(/local network access/i);
   });
 
+  it("warns when a bridge URL uses the KNX interface port 3671 (common mix-up)", () => {
+    const r = checkEndpointUrl("http://192.168.1.20:3671", http);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.join(" ")).toMatch(/3671 is the KNXnet\/IP port/);
+    expect(r.warnings.join(" ")).toMatch(/8787/);
+    expect(checkEndpointUrl("http://127.0.0.1:8787", http).warnings).toEqual([]);
+    expect(checkEndpointUrl("http://192.168.1.20:3671", { pageProtocol: "http:", kind: "homeassistant" }).warnings).toEqual([]);
+  });
+
   it("rejects http public hosts from https (mixed content)", () => {
     expect(checkEndpointUrl("http://bridge.example.com", https).ok).toBe(false);
     expect(checkEndpointUrl("http://bridge.example.com", http).ok).toBe(true);
