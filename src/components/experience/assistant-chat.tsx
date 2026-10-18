@@ -11,7 +11,8 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import { useIsClient } from "@/lib/device";
 import { useAppStore } from "@/lib/state/store";
 import { cn } from "@/lib/utils";
-import { getSpeechRecognitionCtor } from "@/lib/voice/recognizer";
+import { resolveEngine, useSpeechCaps } from "@/lib/voice/speech-input";
+import { useSettings } from "@/lib/state/settings";
 import { EXEC_VIEW } from "./exec-view";
 
 const EXAMPLES: MessageKey[] = ["assistant.example1", "assistant.example2", "assistant.example3"];
@@ -27,13 +28,19 @@ export function AssistantChat() {
   const voiceNote = useConversation((s) => s.voiceNote);
   const micNote = useConversation((s) => s.micNote);
   const llm = useConversation((s) => s.llm);
-  const { send, startListening, stopListening, setSpeakReplies, stopSpeaking, clear, loadAssistantInfo } = useConversation.getState();
+  const { send, startListening, finishListening, stopListening, setSpeakReplies, stopSpeaking, clear, loadAssistantInfo } = useConversation.getState();
+  const caps = useSpeechCaps();
+  const enginePref = useSettings((s) => s.voice.engine);
   const hubStatus = useHub((s) => s.status);
+  const transcribing = useConversation((s) => s.transcribing);
+  useEffect(() => {
+    void useSpeechCaps.getState().refresh();
+  }, [hubStatus]);
   const paused = useAppStore((s) => s.light.dispatchPaused);
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const isClient = useIsClient(); // support is only known in the browser (avoids hydration mismatches)
-  const micSupported = isClient && getSpeechRecognitionCtor() !== null;
+  const micSupported = isClient && resolveEngine(enginePref, caps) !== null;
   const ttsSupported = isClient && synthesisSupported();
 
   useEffect(() => {
@@ -117,6 +124,11 @@ export function AssistantChat() {
             {t("assistant.listening")} {interim}
           </p>
         ) : null}
+        {transcribing ? (
+          <p className="animate-pulse text-xs text-ink-300" data-testid="chat-transcribing">
+            {t("voice.engine.transcribing")}
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -160,7 +172,8 @@ export function AssistantChat() {
             type="button"
             variant={listening ? "danger" : "secondary"}
             size="icon"
-            onClick={() => (listening ? stopListening() : startListening())}
+            onClick={() => (listening ? finishListening() : startListening())}
+            disabled={transcribing}
             aria-pressed={listening}
             aria-label={listening ? t("assistant.micStop") : t("assistant.micStart")}
             data-testid="chat-mic"

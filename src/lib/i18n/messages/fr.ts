@@ -299,6 +299,7 @@ export const fr: Messages = {
       blocked: "Le navigateur a bloqué la synthèse vocale. Touchez « Lire les réponses à voix haute » pour réessayer.",
     },
     mic: {
+      hubError: "La reconnaissance vocale locale a échoué : {message}",
       unsupported: "La reconnaissance vocale n’est pas disponible dans ce navigateur — écrivez plutôt.",
       denied: "L’accès au micro a été refusé.",
       noSpeech: "Je n’ai rien entendu.",
@@ -615,6 +616,21 @@ export const fr: Messages = {
     duplicate: "La lumière est déjà dans cet état.",
   },
   voice: {
+    engine: {
+      label: "Moteur de reconnaissance vocale",
+      auto: "Automatique (reconnaissance locale du hub d’abord)",
+      hub: "Reconnaissance locale SE7ENX (sur votre hub)",
+      browser: "Reconnaissance du navigateur",
+      unavailable: "indisponible",
+      hubReady: "La reconnaissance locale est prête sur le hub (modèle {model}) ; l’audio reste sur votre réseau.",
+      hubMissing: "Le hub ne propose pas de reconnaissance locale (définissez SE7ENX_STT_URL et lancez le service vocal SE7ENX).",
+      browserNote: "La reconnaissance du navigateur peut envoyer l’audio à son éditeur (Chrome, Edge, Safari).",
+      browserMissing: "Ce navigateur n’a pas de reconnaissance vocale (ex. Firefox).",
+      activeHub: "Reconnaissance locale SE7ENX : votre enregistrement est transcrit sur votre hub, pas dans le cloud.",
+      activeBrowser: "Reconnaissance vocale du navigateur.",
+      transcribing: "Transcription…",
+      noneBody: "Ce navigateur n’a pas de reconnaissance vocale et aucun service vocal local n’est disponible sur le hub. Demandez à votre installateur d’activer la reconnaissance locale SE7ENX (SE7ENX_STT_URL), ou utilisez Chrome, Edge ou Safari. Les commandes manuelles et les gestes restent disponibles.",
+    },
     unavailableTitle: "Commandes vocales indisponibles",
     unsupportedTitle: "Ce navigateur ne prend pas en charge la reconnaissance vocale",
     unsupportedBody:
@@ -669,11 +685,19 @@ export const fr: Messages = {
       "low-confidence": "Confiance de reconnaissance trop faible — rien n’a été exécuté. Répétez, s’il vous plaît.",
     },
     errors: {
+      "no-engine": "Aucune reconnaissance vocale disponible : ce navigateur n’en a pas et le hub n’a pas de service vocal local.",
+      "insecure": "Le micro nécessite HTTPS (ou localhost).",
+      "unsupported": "L’enregistrement audio n’est pas pris en charge par ce navigateur.",
+      "hub-stt-disabled": "Le hub n’a pas de service vocal local configuré (SE7ENX_STT_URL).",
+      "hub-stt-unavailable": "Le service vocal du hub n’a pas répondu. Vérifiez qu’il fonctionne.",
+      "hub-stt-audio": "L’enregistrement n’a pas pu être traité. Réessayez.",
+      "hub-stt-busy": "Trop de demandes vocales. Patientez un instant.",
+      "hub-stt-forbidden": "Votre rôle ne permet pas d’utiliser l’assistant.",
       "not-allowed": "L’accès au micro a été refusé. Autorisez le micro pour ce site dans les réglages du navigateur et réessayez.",
       "service-not-allowed":
         "La reconnaissance vocale est bloquée dans ce navigateur ou ce contexte (HTTPS peut être requis ou une stratégie peut la désactiver).",
       "audio-capture": "Aucun micro trouvé, ou il est utilisé par une autre application.",
-      network: "Le service de reconnaissance vocale du navigateur est injoignable. Vérifiez votre connexion ou essayez la reconnaissance sur l’appareil.",
+      network: "Le service vocal du navigateur est injoignable. Les versions de Chromium sans clés Google (ex. chromium d’Arch Linux) et les appareils hors ligne ne peuvent pas l’utiliser : choisissez la reconnaissance locale SE7ENX.",
       "no-speech": "Aucune parole détectée. Appuyez sur Écouter et dites une commande.",
       aborted: "Écoute arrêtée.",
       "language-not-supported":

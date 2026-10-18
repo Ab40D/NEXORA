@@ -1,0 +1,16 @@
+# SE7ENX Speech: pinned, tested set (2026-10-18, Python 3.13, x86_64). Licenses: faster-whisper MIT,
+# CTranslate2 MIT, PyAV BSD-3 (wheels bundle LGPL FFmpeg libraries), onnxruntime MIT, FastAPI MIT,
+# Uvicorn BSD-3, python-multipart Apache-2.0, tokenizers Apache-2.0, huggingface_hub Apache-2.0.
+# Whisper model weights (OpenAI, MIT) are downloaded on first start (or mounted for offline use).
+faster-whisper==1.2.1
+ctranslate2==4.8.3
+av==19.0.1
+onnxruntime==1.31.0
+tokenizers==0.23.3
+huggingface_hub==2.2.0
+numpy==2.5.4
+fastapi==0.146.0
+starlette==1.9.0
+pydantic==2.14.1
+uvicorn==0.54.0
+python-multipart==0.0.32

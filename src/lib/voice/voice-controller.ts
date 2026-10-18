@@ -13,10 +13,14 @@ import { useAppStore } from "@/lib/state/store";
 import type { OnOff } from "@/lib/state/types";
 import { languageFamily, resolveAlternatives, type RecognitionAlternative, type VoiceParseResult } from "./commands";
 import { checkOnDevice, getSpeechRecognitionCtor, VoiceRecognizer, type OnDeviceAvailability } from "./recognizer";
+import { recorderSupported } from "./recorder";
+import { resolveEngine, startSpeech, useSpeechCaps, type SpeechCallbacks, type SpeechEngine, type SpeechSession } from "./speech-input";
 
 export const PUSH_TO_TALK_MS = 8_000;
 export const HANDS_FREE_MS = 60_000;
 const MAX_HANDS_FREE_RESTARTS = 6;
+/** hub engine, hands-free: at most this many utterances per session */
+const MAX_HUB_UTTERANCES = 12;
 
 export type VoiceResultStatus = "executed" | "blocked" | "failed" | "ignored" | "pending";
 
@@ -31,6 +35,11 @@ interface VoiceStore {
   lastResult: { command: OnOff | null; status: VoiceResultStatus; detail: string; at: number } | null;
   error: { code: string; message: string } | null;
   onDevice: OnDeviceAvailability | null;
+  /** engine used by the current/last session */
+  engine: SpeechEngine | null;
+  /** hub engine: the recording is being transcribed */
+  transcribing: boolean;
+  level: number;
   set: (p: Partial<Omit<VoiceStore, "set">>) => void;
 }
 
@@ -45,6 +54,9 @@ export const useVoiceStore = create<VoiceStore>((set) => ({
   lastResult: null,
   error: null,
   onDevice: null,
+  engine: null,
+  transcribing: false,
+  level: 0,
   set: (p) => set(p),
 }));
 
@@ -52,6 +64,8 @@ const reasonText = (reason: NonNullable<VoiceParseResult["reason"]>) => t(`voice
 
 let recognizer: VoiceRecognizer | null = null;
 let restarts = 0;
+let hubSession: SpeechSession | null = null;
+let utterances = 0;
 
 async function handleFinal(alts: RecognitionAlternative[]) {
   const store = useVoiceStore.getState();
@@ -117,8 +131,57 @@ function getRecognizer(): VoiceRecognizer {
   return recognizer;
 }
 
+function endSession(): void {
+  useVoiceStore.getState().set({ session: null, level: 0 });
+}
+
+/** hub engine: next utterance in hands-free mode, never overlapping a running transcription */
+function continueHub(): void {
+  const s = useVoiceStore.getState();
+  const left = s.session ? s.session.endsAt - Date.now() : 0;
+  if (s.session?.mode === "handsfree" && left > 1500 && utterances < MAX_HUB_UTTERANCES && !document.hidden && !useAppStore.getState().light.dispatchPaused) {
+    utterances++;
+    hubSession = startSpeech("hub", { lang: useSettings.getState().voice.lang, maxDurationMs: Math.min(PUSH_TO_TALK_MS, left) }, hubCallbacks());
+    return;
+  }
+  endSession();
+}
+
+function hubCallbacks(): SpeechCallbacks {
+  return {
+    onListening: (listening) => useVoiceStore.getState().set({ listening, interim: "", ...(listening ? {} : { level: 0 }) }),
+    onLevel: (level) => useVoiceStore.getState().set({ level }),
+    onTranscribing: (busy) => {
+      useVoiceStore.getState().set({ transcribing: busy });
+      if (!busy) continueHub();
+    },
+    onFinal: (alts) => void handleFinal(alts),
+    onError: (code, message) => {
+      const s = useVoiceStore.getState();
+      if (code === "no-speech") {
+        s.set({ lastResult: { command: null, status: "ignored", detail: t("voice.errors.no-speech"), at: Date.now() } });
+        continueHub();
+        return;
+      }
+      s.set({ error: { code, message }, micPermission: code === "not-allowed" ? "denied" : s.micPermission });
+      endSession();
+    },
+  };
+}
+
 function startRecognition(mode: "push" | "handsfree", durationMs: number) {
-  const { lang, preferOnDevice } = useSettings.getState().voice;
+  const { lang, preferOnDevice, engine: pref } = useSettings.getState().voice;
+  const engine = resolveEngine(pref, useSpeechCaps.getState());
+  useVoiceStore.getState().set({ engine });
+  if (engine === null) {
+    useVoiceStore.getState().set({ session: null, error: { code: "no-engine", message: t("voice.errors.no-engine") } });
+    return;
+  }
+  if (engine === "hub") {
+    utterances = 1;
+    hubSession = startSpeech("hub", { lang, maxDurationMs: Math.min(PUSH_TO_TALK_MS, durationMs) }, hubCallbacks());
+    return;
+  }
   const onDevice = useVoiceStore.getState().onDevice;
   getRecognizer().start({
     lang,
@@ -128,8 +191,10 @@ function startRecognition(mode: "push" | "handsfree", durationMs: number) {
   });
 }
 
+/** Something can capture speech here: the browser engine, or recording for the hub engine. */
 export function initVoiceSupport(): void {
-  useVoiceStore.getState().set({ supported: getSpeechRecognitionCtor() !== null });
+  useVoiceStore.getState().set({ supported: getSpeechRecognitionCtor() !== null || recorderSupported() });
+  void useSpeechCaps.getState().refresh();
 }
 
 export async function refreshOnDevice(): Promise<void> {
@@ -140,8 +205,9 @@ export async function refreshOnDevice(): Promise<void> {
 /** Explicit opt-in: asks for microphone permission once, records nothing. */
 export async function enableVoice(): Promise<void> {
   const s = useVoiceStore.getState();
-  if (!getSpeechRecognitionCtor()) {
-    s.set({ supported: false });
+  await useSpeechCaps.getState().refresh();
+  if (resolveEngine(useSettings.getState().voice.engine, useSpeechCaps.getState()) === null) {
+    s.set({ error: { code: "no-engine", message: t("voice.errors.no-engine") } });
     return;
   }
   s.set({ error: null });
@@ -205,6 +271,8 @@ export function startHandsFree(): void {
 }
 
 export function stopListening(): void {
-  useVoiceStore.getState().set({ session: null });
+  useVoiceStore.getState().set({ session: null, level: 0 });
   recognizer?.abort();
+  hubSession?.abort();
+  hubSession = null;
 }

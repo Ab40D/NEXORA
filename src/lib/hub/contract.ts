@@ -212,10 +212,29 @@ export type KnxUsbReport = z.infer<typeof KnxUsbReportSchema>;
 
 // ---------------------------------------------------------------- optional LLM interpreter (hub >= 1.2)
 
+export const SttInfoSchema = z.object({
+  enabled: z.boolean(),
+  model: z.string().nullable(),
+  host: z.string().nullable(),
+  maxSeconds: z.number().int().optional(),
+});
+export type SttInfo = z.infer<typeof SttInfoSchema>;
+
 export const AssistantInfoSchema = z.object({
   llm: z.object({ enabled: z.boolean(), model: z.string().nullable(), host: z.string().nullable() }),
+  // local speech-to-text (hub >= 2.0); older hubs omit it
+  stt: SttInfoSchema.optional(),
 });
 export type AssistantInfo = z.infer<typeof AssistantInfoSchema>;
+
+export const TranscriptionSchema = z.object({
+  text: z.string(),
+  language: z.string().nullable().optional(),
+  engine: z.string(),
+  model: z.string().nullable().optional(),
+  ms: z.number().optional(),
+});
+export type Transcription = z.infer<typeof TranscriptionSchema>;
 
 export const LLM_INTENTS = [
   "turn_on",

@@ -18,7 +18,8 @@ import type { AssistantInterpretation } from "@/lib/hub/contract";
 import { hubClient, useHub } from "@/lib/hub/hub-store";
 import { formatPercent, LOCALE_META, translate, useI18n, type Locale, type MessageKey, type Vars } from "@/lib/i18n";
 import { useAppStore } from "@/lib/state/store";
-import { VoiceRecognizer } from "@/lib/voice/recognizer";
+import { resolveEngine, startSpeech, useSpeechCaps, type SpeechSession } from "@/lib/voice/speech-input";
+import { useSettings } from "@/lib/state/settings";
 import { stopListening as stopVoicePanelListening } from "@/lib/voice/voice-controller";
 
 export interface ChatMessage {
@@ -42,6 +43,8 @@ interface ConversationStore {
   messages: ChatMessage[];
   thinking: boolean;
   listening: boolean;
+  /** local hub speech: the recording is being transcribed */
+  transcribing: boolean;
   interim: string;
   speaking: boolean;
   speakReplies: boolean;
@@ -51,6 +54,9 @@ interface ConversationStore {
   loadAssistantInfo: () => Promise<void>;
   send: (text: string, via?: "typed" | "voice") => Promise<void>;
   startListening: () => void;
+  /** end the recording now and use what was said (push-to-talk "stop") */
+  finishListening: () => void;
+  /** cancel listening and discard the audio */
   stopListening: () => void;
   setSpeakReplies: (on: boolean) => void;
   stopSpeaking: () => void;
@@ -60,7 +66,7 @@ interface ConversationStore {
 const MAX_TEXT = 300;
 const LISTEN_MAX_MS = 8000;
 let nextId = 0;
-let recognizer: VoiceRecognizer | null = null;
+let speech: SpeechSession | null = null;
 
 function currentTarget(): TargetSnapshot | null {
   return selectTarget(useExperience.getState(), useHub.getState());
@@ -130,6 +136,7 @@ export const useConversation = create<ConversationStore>()((set, get) => {
     messages: [],
     thinking: false,
     listening: false,
+    transcribing: false,
     interim: "",
     speaking: false,
     speakReplies: false,
@@ -214,26 +221,40 @@ export const useConversation = create<ConversationStore>()((set, get) => {
         return;
       }
       cancelSpeech();
-      stopVoicePanelListening(); // only one recognizer at a time
+      stopVoicePanelListening(); // only one microphone user at a time
+      speech?.abort();
       set({ speaking: false, micNote: null, interim: "" });
-      if (!recognizer) {
-        recognizer = new VoiceRecognizer({
+      const engine = resolveEngine(useSettings.getState().voice.engine, useSpeechCaps.getState());
+      if (!engine) {
+        set({ micNote: { key: "assistant.mic.unsupported" } });
+        return;
+      }
+      speech = startSpeech(
+        engine,
+        { lang: LOCALE_META[useI18n.getState().locale].recognition, maxDurationMs: LISTEN_MAX_MS },
+        {
           onListening: (listening) => set(listening ? { listening } : { listening, interim: "" }),
           onInterim: (interim) => set({ interim }),
+          onTranscribing: (transcribing) => set({ transcribing }),
           onFinal: (alternatives) => {
             const best = alternatives[0]?.transcript?.trim();
             set({ interim: "" });
             if (best && !get().speaking) void get().send(best, "voice");
           },
-          onError: (code) => set({ micNote: micNoteFor(code), listening: false }),
-        });
-      }
-      recognizer.start({ lang: LOCALE_META[useI18n.getState().locale].recognition, continuous: false, maxDurationMs: LISTEN_MAX_MS });
+          onError: (code, message) =>
+            set({ micNote: code.startsWith("hub-stt") ? { key: "assistant.mic.hubError", vars: { message } } : micNoteFor(code), listening: false }),
+        },
+      );
+    },
+
+    finishListening: () => {
+      speech?.stop();
     },
 
     stopListening: () => {
-      recognizer?.stop();
-      set({ listening: false, interim: "" });
+      speech?.abort();
+      speech = null;
+      set({ listening: false, transcribing: false, interim: "" });
     },
 
     setSpeakReplies: (on) => {

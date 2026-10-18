@@ -2,16 +2,19 @@
 
 import { Download, Mic, MicOff, Radio, ShieldAlert, Square } from "lucide-react";
 import { useEffect, useState } from "react";
+import { SecureContextHelp } from "@/components/security/secure-context-help";
 import { Button } from "@/components/ui/button";
 import { Badge, Callout, Card, CardHeader, Label, Switch } from "@/components/ui/primitives";
 import { useNow } from "@/lib/device";
 import { useTarget } from "@/lib/experience/store";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { useSettings } from "@/lib/state/settings";
+import { useHub } from "@/lib/hub/hub-store";
 import { useAppStore } from "@/lib/state/store";
 import { cn } from "@/lib/utils";
 import { EXAMPLE_PHRASES, languageFamily, VOICE_LANGUAGES } from "@/lib/voice/commands";
 import { installOnDevice, supportsOnDeviceRecognition } from "@/lib/voice/recognizer";
+import { hubSpeechAvailable, resolveEngine, useSpeechCaps } from "@/lib/voice/speech-input";
 import {
   disableVoice,
   enableVoice,
@@ -33,6 +36,13 @@ const ERROR_CODES = new Set([
   "bad-grammar",
   "NotAllowedError",
   "NotFoundError",
+  "no-engine",
+  "insecure",
+  "hub-stt-disabled",
+  "hub-stt-unavailable",
+  "hub-stt-audio",
+  "hub-stt-busy",
+  "hub-stt-forbidden",
 ]);
 
 const STATUS_TONE = {
@@ -56,20 +66,53 @@ export function VoicePanel() {
   const [installing, setInstalling] = useState(false);
   const family = languageFamily(voice.lang);
   const langOpt = VOICE_LANGUAGES.find((l) => l.tag === voice.lang) ?? VOICE_LANGUAGES[0]!;
+  const caps = useSpeechCaps();
+  const hubStatus = useHub((s) => s.status);
+  useEffect(() => {
+    void useSpeechCaps.getState().refresh();
+  }, [hubStatus]);
+  const engine = resolveEngine(voice.engine, caps);
+  const hubOk = hubSpeechAvailable(caps);
 
   // Probe on-device availability only after the user opted in.
   useEffect(() => {
     if (v.enabled && voice.preferOnDevice) void refreshOnDevice();
   }, [voice.lang, v.enabled, voice.preferOnDevice]);
 
-  if (v.supported === false) {
+  const engineSelect = (
+    <div className="space-y-2">
+      <Label htmlFor="voice-engine">{t("voice.engine.label")}</Label>
+      <select
+        id="voice-engine"
+        value={voice.engine}
+        onChange={(e) => {
+          stopListening();
+          setVoice({ engine: e.target.value as "auto" | "browser" | "hub" });
+        }}
+        className="h-11 w-full rounded-xl border border-ink-600 bg-ink-900/80 px-3 text-sm text-ink-50"
+        data-testid="voice-engine"
+      >
+        <option value="auto">{t("voice.engine.auto")}</option>
+        <option value="hub">{t("voice.engine.hub")}{hubOk ? "" : ` (${t("voice.engine.unavailable")})`}</option>
+        <option value="browser">{t("voice.engine.browser")}{caps.browser ? "" : ` (${t("voice.engine.unavailable")})`}</option>
+      </select>
+      <p className="text-xs text-ink-400">
+        {hubOk ? t("voice.engine.hubReady", { model: caps.hub?.model ?? "?" }) : t("voice.engine.hubMissing")}{" "}
+        {caps.browser ? t("voice.engine.browserNote") : t("voice.engine.browserMissing")}
+      </p>
+    </div>
+  );
+
+  if (v.supported === false || engine === null) {
     return (
       <Card>
         <CardHeader icon={<MicOff className="h-4 w-4" />} title={t("voice.unavailableTitle")} />
         <div className="space-y-3 px-4 pb-5 pt-3 sm:px-5">
-          <Callout tone="warn" title={t("voice.unsupportedTitle")}>
-            {t("voice.unsupportedBody")}
+          <SecureContextHelp feature="microphone" />
+          <Callout tone="warn" title={t("voice.unsupportedTitle")} data-testid="voice-no-engine">
+            {t("voice.engine.noneBody")}
           </Callout>
+          {v.supported !== false ? engineSelect : null}
         </div>
       </Card>
     );
@@ -90,12 +133,20 @@ export function VoicePanel() {
               <Badge tone="danger" dot>
                 {t("voice.listening")}
               </Badge>
+            ) : v.transcribing ? (
+              <Badge tone="accent" dot>
+                {t("voice.engine.transcribing")}
+              </Badge>
             ) : v.enabled ? (
               <Badge tone="ok">{t("voice.enabled")}</Badge>
             ) : null
           }
         />
         <div className="space-y-4 px-4 pb-5 pt-3 sm:px-5">
+          <SecureContextHelp feature="microphone" />
+          <p className="text-xs text-ink-300" data-testid="voice-active-engine" data-engine={engine}>
+            {engine === "hub" ? t("voice.engine.activeHub") : t("voice.engine.activeBrowser")}
+          </p>
           {!v.enabled ? (
             <>
               <div className="flex items-start gap-2 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-xs leading-relaxed text-ink-300">
@@ -133,6 +184,11 @@ export function VoicePanel() {
                 </Button>
               </div>
 
+              {v.listening && engine === "hub" ? (
+                <div className="h-1.5 overflow-hidden rounded-full bg-ink-700" aria-hidden>
+                  <div className="h-full bg-ink-50 transition-[width] duration-75" style={{ width: `${Math.round(v.level * 100)}%` }} />
+                </div>
+              ) : null}
               <div className="grid gap-2 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-sm" aria-live="polite">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">{t("voice.heard")}</p>
@@ -168,6 +224,8 @@ export function VoicePanel() {
           {target ? <p className="text-xs text-ink-300">{t("voice.target", { name: target.name })}</p> : null}
           <p className="text-xs text-ink-400">{t("voice.chatHint")}</p>
 
+          {engineSelect}
+
           <div className="space-y-2">
             <Label htmlFor="voice-lang">{t("voice.language")}</Label>
             <select
@@ -187,7 +245,7 @@ export function VoicePanel() {
             </select>
           </div>
 
-          {v.enabled && supportsOnDeviceRecognition() ? (
+          {v.enabled && engine === "browser" && supportsOnDeviceRecognition() ? (
             <div className="space-y-2">
               <Switch
                 id="on-device"

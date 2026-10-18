@@ -29,6 +29,8 @@ export const VoiceSettingsSchema = z.object({
   lang: z.string().min(2).max(12),
   preferOnDevice: z.boolean(),
   handsFree: z.boolean(),
+  /** auto = local hub speech when the hub offers it, else the browser's speech recognition */
+  engine: z.enum(["auto", "browser", "hub"]).default("auto"),
 });
 export type VoiceSettings = z.infer<typeof VoiceSettingsSchema>;
 
@@ -53,7 +55,7 @@ export const DEFAULT_GESTURE_SETTINGS: GestureSettings = {
   facing: "user",
 };
 
-export const DEFAULT_VOICE_SETTINGS: VoiceSettings = { lang: "en-US", preferOnDevice: false, handsFree: false };
+export const DEFAULT_VOICE_SETTINGS: VoiceSettings = { lang: "en-US", preferOnDevice: false, handsFree: false, engine: "auto" };
 
 export const DEFAULT_CONNECTION_PREFS: ConnectionPrefs = {
   // Appliance build: the UI is served by the hub itself, so the hub is this page's origin.

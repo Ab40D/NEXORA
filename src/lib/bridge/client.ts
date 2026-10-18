@@ -4,6 +4,7 @@
 import {
   AssistantInfoSchema,
   AssistantInterpretSchema,
+  TranscriptionSchema,
   DeviceListSchema,
   HaConfigSchema,
   HaEntitiesSchema,
@@ -17,6 +18,7 @@ import {
   ShellyIdentitySchema,
   type AddDeviceBody,
   type AssistantInfo,
+  type Transcription,
   type AssistantInterpretation,
   type DevicePatchBody,
   type HaConfig,
@@ -182,10 +184,11 @@ export class BridgeClient {
     path: string,
     schema: S | null,
     body?: unknown,
-    opts: { auth?: boolean; timeoutMs?: number } = {},
+    opts: { auth?: boolean; timeoutMs?: number; raw?: { body: Blob; contentType: string } } = {},
   ): Promise<z.infer<S>> {
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (opts.raw) headers["Content-Type"] = opts.raw.contentType;
+    else if (body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.auth !== false) {
       if (this.token) headers.Authorization = `Bearer ${this.token}`;
       else if (!this.cookieAuth)
@@ -197,7 +200,7 @@ export class BridgeClient {
       res = await fetchWithTimeout(this.url(path), {
         method,
         headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: opts.raw ? opts.raw.body : body !== undefined ? JSON.stringify(body) : undefined,
         timeoutMs: opts.timeoutMs ?? this.timeoutMs,
         targetAddressSpace: this.targetAddressSpace,
         credentials: this.cookieAuth ? "same-origin" : "omit",
@@ -397,6 +400,15 @@ export class BridgeClient {
     device?: { name: string; dimmable: boolean; on: boolean | null; brightness: number | null };
   }): Promise<AssistantInterpretation> {
     return this.request("POST", "/assistant/interpret", AssistantInterpretSchema, body, { timeoutMs: 20000 });
+  }
+
+  /** Local speech-to-text on the hub (SE7ENX_STT_URL). The audio is not stored anywhere. */
+  transcribe(audio: Blob, lang: string): Promise<Transcription> {
+    const contentType = (audio.type || "audio/webm").split(";")[0]!;
+    return this.request("POST", `/assistant/transcribe?lang=${encodeURIComponent(lang)}`, TranscriptionSchema, undefined, {
+      timeoutMs: 60000,
+      raw: { body: audio, contentType },
+    });
   }
 
   exportConfig(): Promise<unknown> {
