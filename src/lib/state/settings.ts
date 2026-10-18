@@ -17,6 +17,10 @@ export const GestureSettingsSchema = z
     cooldownMs: z.number().int().min(300).max(10000),
     requireOpenForOff: z.boolean(),
     showLandmarks: z.boolean(),
+    /** MediaPipe delegate: auto picks CPU on software WebGL (much faster there) */
+    delegate: z.enum(["auto", "GPU", "CPU"]).default("auto"),
+    /** which camera to use on phones/tablets */
+    facing: z.enum(["user", "environment"]).default("user"),
   })
   .refine((g) => g.onThreshold - g.offThreshold >= MIN_THRESHOLD_GAP - 1e-9, "threshold gap");
 export type GestureSettings = z.infer<typeof GestureSettingsSchema>;
@@ -45,6 +49,8 @@ export const DEFAULT_GESTURE_SETTINGS: GestureSettings = {
   cooldownMs: DEFAULT_GESTURE_CONFIG.cooldownMs,
   requireOpenForOff: DEFAULT_GESTURE_CONFIG.requireOpenForOff,
   showLandmarks: true,
+  delegate: "auto",
+  facing: "user",
 };
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = { lang: "en-US", preferOnDevice: false, handsFree: false };

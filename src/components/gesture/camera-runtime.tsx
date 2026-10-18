@@ -1,70 +1,67 @@
 "use client";
 
 /**
- * Camera preview + hand-tracking loop. Mounted on the lamp stage whenever the
- * camera is active. Frames are processed locally; nothing is uploaded.
+ * Camera preview + hand-tracking loop, mounted once in the app shell so gestures work on every
+ * page while the camera is on. Frames are processed locally; nothing is uploaded.
+ *
+ * Pipeline per frame: MediaPipe landmarks → static pose recognizer (thumb up, fist, …) and,
+ * for the classic profile, the hand-height engine → the active gesture profile → dispatch
+ * through the normal command pipeline (permissions, emergency stop, hub policy).
  */
 import { Maximize2, Minimize2, VideoOff } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { computeCalibration } from "@/lib/gesture/calibration";
-import { drawOverlay } from "@/lib/gesture/draw";
+import { dispatchGesture } from "@/lib/gesture/dispatch";
+import { drawOverlay, drawPoseOverlay } from "@/lib/gesture/draw";
 import { GestureEngine, type GestureUpdate } from "@/lib/gesture/gesture-engine";
 import { stopCamera, useGestureStore } from "@/lib/gesture/gesture-store";
 import type { HandObservation } from "@/lib/gesture/hand-features";
-import { getHandTracker } from "@/lib/gesture/hand-tracker";
+import { fallbackToCpu, getHandTracker, type TrackerHandle } from "@/lib/gesture/hand-tracker";
+import { activePoses, getActiveProfile, useActiveProfile, usesHeight, type GestureId } from "@/lib/gesture/profiles";
+import { PoseRecognizer, type RecognizerUpdate } from "@/lib/gesture/recognizer";
 import { detectLowPower } from "@/lib/device";
-import { EXEC_VIEW } from "@/components/experience/exec-view";
-import { useExperience } from "@/lib/experience/store";
 import { t, useT } from "@/lib/i18n";
 import { useSettings } from "@/lib/state/settings";
-import { useAppStore } from "@/lib/state/store";
-import type { OnOff } from "@/lib/state/types";
 import { cn } from "@/lib/utils";
 
 const CAL_PREP_MS = 1500;
 const CAL_SAMPLE_MS = 2000;
+/** consecutive failing frames before the tracker is replaced by a CPU one */
+const MAX_FRAME_ERRORS = 3;
+/** auto mode: GPU slower than this after warm-up → switch to CPU */
+const SLOW_GPU_FPS = 6;
+const WARMUP_MS = 4000;
 
-/**
- * A recognised gesture is only a request: the message shows what actually happened.
- * With a light selected in the Smart Light Experience the gesture goes through the same pipeline
- * as every other input (emergency stop, capability, hub policy); otherwise the legacy path is used.
- */
-async function dispatchGesture(value: OnOff) {
-  const gs = useGestureStore.getState();
-  const at = Date.now();
-  if (!gs.gesturesEnabled) {
-    gs.set({ lastTrigger: { value, at, ok: false, message: t("gesture.trigger.disabled") } });
-    return;
+let dispatching = false;
+
+async function runGesture(gesture: GestureId): Promise<void> {
+  if (dispatching) return; // never queue commands from the camera
+  const profile = getActiveProfile();
+  if (!profile.bindings[gesture]) return;
+  dispatching = true;
+  try {
+    const res = await dispatchGesture(gesture, profile, { gesturesEnabled: useGestureStore.getState().gesturesEnabled });
+    if (res) useGestureStore.getState().set({ lastTrigger: res });
+  } finally {
+    dispatching = false;
   }
-  const xp = useExperience.getState();
-  if (xp.target !== "none") {
-    const exec = await xp.execute({ kind: value === "on" ? "turn_on" : "turn_off" }, "gesture");
-    const ok = exec.state === "confirmed" || exec.state === "simulated" || exec.state === "already";
-    const message = t(EXEC_VIEW[exec.state].key) + (exec.error && exec.state !== "already" ? ` — ${t(`errors.${exec.error}.message`)}` : "");
-    useGestureStore.getState().set({ lastTrigger: { value, at, ok, message } });
-    return;
-  }
-  const res = await useAppStore.getState().requestCommand(value, "gesture");
-  const message =
-    res.status === "blocked"
-      ? t(`block.${res.reason}`)
-      : res.status === "failed"
-        ? t("gesture.trigger.failed", { reason: res.message })
-        : res.detail;
-  useGestureStore.getState().set({ lastTrigger: { value, at, ok: res.status === "done", message } });
 }
 
 export function CameraRuntime() {
   const stream = useGestureStore((s) => s.stream);
   const cameraStatus = useGestureStore((s) => s.cameraStatus);
   const previewLarge = useGestureStore((s) => s.previewLarge);
-  const { t: tr } = useT();
+  const pose = useGestureStore((s) => s.pose);
   const update = useGestureStore((s) => s.update);
+  const lastTrigger = useGestureStore((s) => s.lastTrigger);
+  const profile = useActiveProfile();
+  const { t: tr } = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GestureEngine | null>(null);
+  const recognizerRef = useRef<PoseRecognizer | null>(null);
 
-  // keep engine config in sync with settings
+  // keep the height engine in sync with settings
   const gesture = useSettings((s) => s.gesture);
   useEffect(() => {
     const cfg = {
@@ -84,6 +81,13 @@ export function CameraRuntime() {
     }
   }, [gesture]);
 
+  // keep the pose recognizer in sync with the active profile
+  useEffect(() => {
+    const cfg = { holdMs: profile.holdMs, cooldownMs: profile.cooldownMs };
+    if (!recognizerRef.current) recognizerRef.current = new PoseRecognizer(activePoses(profile), cfg);
+    else recognizerRef.current.configure(activePoses(profile), cfg);
+  }, [profile]);
+
   useEffect(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -96,14 +100,39 @@ export function CameraRuntime() {
     const ctx = canvas.getContext("2d");
     const store = useGestureStore.getState();
     engineRef.current?.reset();
+    recognizerRef.current?.reset();
 
+    let handle: TrackerHandle | null = null;
     let lastVideoTime = -1;
     let lastProcessed = 0;
     let lastPublish = 0;
     let lastStatus = "";
     let frames = 0;
     let fpsWindow = performance.now();
+    let runningSince = 0;
+    let consecutiveErrors = 0;
+    let switching = false;
+    const inference: number[] = [];
     const cal = { phase: "idle" as string, since: 0, low: [] as number[], high: [] as number[] };
+
+    const switchToCpu = async (note: string) => {
+      if (!handle || handle.delegate === "CPU" || switching) return;
+      switching = true;
+      try {
+        handle = await fallbackToCpu(handle);
+        runningSince = performance.now();
+        consecutiveErrors = 0;
+        useGestureStore.getState().set({ delegate: handle.delegate, delegateReason: handle.reason, delegateNote: note });
+      } catch (err) {
+        useGestureStore.getState().set({
+          cameraStatus: "error",
+          error: { code: "model", message: t("gesture.overlay.modelError", { error: err instanceof Error ? err.message : "?" }) },
+        });
+        cancelled = true;
+      } finally {
+        switching = false;
+      }
+    };
 
     const start = async () => {
       video.srcObject = stream;
@@ -116,51 +145,59 @@ export function CameraRuntime() {
       }
       if (cancelled) return;
       store.set({ cameraStatus: "loading-model" });
-      let handle;
       try {
-        handle = await getHandTracker();
+        handle = await getHandTracker(useSettings.getState().gesture.delegate);
       } catch (err) {
         if (cancelled) return;
         useGestureStore.getState().set({
           cameraStatus: "error",
-          error: {
-            code: "model",
-            message: t("gesture.overlay.modelError", { error: err instanceof Error ? err.message : "?" }),
-          },
+          error: { code: "model", message: t("gesture.overlay.modelError", { error: err instanceof Error ? err.message : "?" }) },
         });
         return;
       }
       if (cancelled) return;
-      useGestureStore.getState().set({ cameraStatus: "running", delegate: handle.delegate });
+      runningSince = performance.now();
+      useGestureStore.getState().set({ cameraStatus: "running", delegate: handle.delegate, delegateReason: handle.reason, modelLoadMs: handle.loadMs });
 
       const loop = () => {
         if (cancelled) return;
         schedule();
-        if (document.hidden || video.readyState < 2) return;
+        if (!handle || switching || document.hidden || video.readyState < 2) return;
         const now = performance.now();
         if (video.currentTime === lastVideoTime || now - lastProcessed < minFrameGap) return;
         lastVideoTime = video.currentTime;
         lastProcessed = now;
+        const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 4 / 3;
 
         let hands: HandObservation[] = [];
         try {
+          const t0 = performance.now();
           const res = handle.landmarker.detectForVideo(video, now);
+          inference.push(performance.now() - t0);
+          if (inference.length > 30) inference.shift();
+          consecutiveErrors = 0;
           hands = res.landmarks.map((lm, i) => ({
             landmarks: lm,
             score: res.handedness[i]?.[0]?.score ?? 0,
             handedness: res.handedness[i]?.[0]?.categoryName,
           }));
         } catch (err) {
+          consecutiveErrors++;
+          useGestureStore.getState().set({ frameErrors: useGestureStore.getState().frameErrors + 1 });
           console.warn("[se7enx] hand tracking frame failed", err);
+          if (consecutiveErrors >= MAX_FRAME_ERRORS) void switchToCpu(t("gesture.diag.noteErrors"));
           return;
         }
 
-        const engine = engineRef.current!;
         const gs = useGestureStore.getState();
         const settings = useSettings.getState().gesture;
-        let upd: GestureUpdate = engine.update({ t: now, hands });
+        const prof = getActiveProfile();
+        const heightMode = usesHeight(prof);
+        const recognizer = recognizerRef.current!;
+        const poseUpd: RecognizerUpdate = recognizer.update({ t: now, hands, aspect });
+        let upd: GestureUpdate | null = heightMode ? engineRef.current!.update({ t: now, hands, aspect }) : null;
 
-        // ---- calibration state machine (suppresses triggers while running)
+        // ---- calibration state machine (height profile; suppresses triggers while running)
         const phase = gs.calibration.phase;
         if (phase !== cal.phase) {
           cal.phase = phase;
@@ -170,23 +207,25 @@ export function CameraRuntime() {
             cal.high = [];
           }
         }
-        if (phase !== "idle" && phase !== "done" && phase !== "failed") {
-          upd = { ...upd, trigger: null };
+        const calibrating = phase !== "idle" && phase !== "done" && phase !== "failed";
+        if (calibrating) {
+          const h = upd ?? engineRef.current!.update({ t: now, hands, aspect });
+          upd = { ...h, trigger: null };
           const elapsed = now - cal.since;
-          const valid = upd.rawHeight !== null && upd.open && upd.status !== "low-confidence" && upd.status !== "no-hand";
+          const valid = h.rawHeight !== null && h.open && h.status !== "low-confidence" && h.status !== "no-hand";
           if (phase === "get-low" && elapsed > CAL_PREP_MS) gs.set({ calibration: { phase: "low", message: null, progress: 0 } });
           else if (phase === "low") {
-            if (valid) cal.low.push(upd.rawHeight!);
+            if (valid) cal.low.push(h.rawHeight!);
             if (elapsed > CAL_SAMPLE_MS) gs.set({ calibration: { phase: "get-high", message: null, progress: 0 } });
             else gs.set({ calibration: { phase, message: null, progress: elapsed / CAL_SAMPLE_MS } });
           } else if (phase === "get-high" && elapsed > CAL_PREP_MS) gs.set({ calibration: { phase: "high", message: null, progress: 0 } });
           else if (phase === "high") {
-            if (valid) cal.high.push(upd.rawHeight!);
+            if (valid) cal.high.push(h.rawHeight!);
             if (elapsed > CAL_SAMPLE_MS) {
               const r = computeCalibration(cal.low, cal.high);
               if (r.ok) {
                 useSettings.getState().setGesture({ onThreshold: r.onThreshold, offThreshold: r.offThreshold });
-                engine.reset();
+                engineRef.current!.reset();
                 gs.set({
                   calibration: {
                     phase: "done",
@@ -199,9 +238,10 @@ export function CameraRuntime() {
               }
             } else gs.set({ calibration: { phase, message: null, progress: elapsed / CAL_SAMPLE_MS } });
           }
+        } else {
+          if (poseUpd.trigger) void runGesture(poseUpd.trigger);
+          if (upd?.trigger) void runGesture(upd.trigger === "on" ? "raise" : "lower");
         }
-
-        if (upd.trigger) void dispatchGesture(upd.trigger);
 
         // ---- draw overlay
         if (ctx) {
@@ -212,26 +252,33 @@ export function CameraRuntime() {
             canvas.width = w;
             canvas.height = h;
           }
-          drawOverlay(ctx, w, h, hands.map((x) => x.landmarks), upd, {
-            onThreshold: settings.onThreshold,
-            offThreshold: settings.offThreshold,
-            showLandmarks: settings.showLandmarks,
-            mirror: true,
-            dpr,
-          });
+          const mirror = (gs.streamInfo?.facingMode ?? settings.facing) !== "environment";
+          const lms = hands.map((x) => x.landmarks);
+          if (heightMode || calibrating) {
+            drawOverlay(ctx, w, h, lms, upd, { onThreshold: settings.onThreshold, offThreshold: settings.offThreshold, showLandmarks: settings.showLandmarks, mirror, dpr });
+          } else {
+            drawPoseOverlay(ctx, w, h, lms, poseUpd, { showLandmarks: settings.showLandmarks, mirror, dpr });
+          }
         }
 
-        // ---- publish to React at ~10 Hz (or immediately on status change)
+        // ---- metrics + automatic delegate switch (auto mode only)
         frames++;
         if (now - fpsWindow > 1000) {
-          gs.set({ fps: Math.round((frames * 1000) / (now - fpsWindow)) });
+          const fps = Math.round((frames * 1000) / (now - fpsWindow));
+          const sorted = [...inference].sort((a, b) => a - b);
+          const median = sorted.length ? Math.round(sorted[Math.floor(sorted.length / 2)]!) : null;
+          gs.set({ fps, inferenceMs: median });
           frames = 0;
           fpsWindow = now;
+          if (settings.delegate === "auto" && handle.delegate === "GPU" && now - runningSince > WARMUP_MS && fps < SLOW_GPU_FPS) {
+            void switchToCpu(t("gesture.diag.noteSlow", { fps }));
+          }
         }
-        if (upd.trigger || upd.status !== lastStatus || now - lastPublish > 100) {
-          lastStatus = upd.status;
+        const status = `${poseUpd.status}:${poseUpd.pose}:${upd?.status ?? ""}`;
+        if (poseUpd.trigger || upd?.trigger || status !== lastStatus || now - lastPublish > 100) {
+          lastStatus = status;
           lastPublish = now;
-          gs.set({ update: upd });
+          gs.set({ pose: poseUpd, update: upd });
         }
       };
 
@@ -249,7 +296,10 @@ export function CameraRuntime() {
 
     void start();
     const onVisibility = () => {
-      if (document.hidden) engineRef.current?.reset();
+      if (document.hidden) {
+        engineRef.current?.reset();
+        recognizerRef.current?.reset();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -266,24 +316,39 @@ export function CameraRuntime() {
 
   if (!stream) return null;
 
+  const heightMode = usesHeight(profile);
   const statusText =
     cameraStatus === "loading-model"
       ? tr("gesture.overlay.loading")
       : cameraStatus === "starting"
         ? tr("gesture.overlay.starting")
-        : update
-          ? tr(`gesture.status.${update.status}`)
-          : tr("gesture.showHand");
+        : heightMode
+          ? update
+            ? tr(`gesture.status.${update.status}`)
+            : tr("gesture.showHand")
+          : pose
+            ? pose.pose
+              ? `${tr(`gesture.pose.${pose.pose}`)} · ${tr(`gesture.rstatus.${pose.status}`)}`
+              : tr(`gesture.rstatus.${pose.status}`)
+            : tr("gesture.showHand");
+  const mirror = useSettings.getState().gesture.facing !== "environment";
 
   return (
     <div
       className={cn(
-        "pointer-events-auto absolute bottom-3 right-3 z-20 overflow-hidden rounded-2xl border border-ink-500/80 bg-ink-950 shadow-[var(--shadow-glow)] transition-[width] duration-300",
-        previewLarge ? "w-[min(92%,26rem)]" : "w-[min(46%,13.5rem)]",
+        "pointer-events-auto fixed bottom-3 end-3 z-40 overflow-hidden rounded-2xl border border-ink-500/80 bg-ink-950 shadow-[var(--shadow-glow)] transition-[width] duration-300",
+        previewLarge ? "w-[min(92vw,26rem)]" : "w-[min(46vw,13.5rem)]",
       )}
+      data-testid="camera-dock"
     >
       <div className="relative aspect-[4/3]">
-        <video ref={videoRef} className="absolute inset-0 h-full w-full -scale-x-100 object-cover opacity-80" muted playsInline aria-label={tr("gesture.overlay.preview")} />
+        <video
+          ref={videoRef}
+          className={cn("absolute inset-0 h-full w-full object-cover opacity-80", mirror && "-scale-x-100")}
+          muted
+          playsInline
+          aria-label={tr("gesture.overlay.preview")}
+        />
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />
         {cameraStatus !== "running" ? (
           <div className="absolute inset-0 grid place-items-center bg-ink-950/70 text-xs text-ink-200">{statusText}</div>
@@ -313,8 +378,15 @@ export function CameraRuntime() {
           </div>
         </div>
       </div>
-      <div className="flex items-center justify-between gap-2 border-t border-ink-700 px-2.5 py-1.5 text-[11px] text-ink-200" aria-live="polite">
-        <span className="truncate">{statusText}</span>
+      <div className="space-y-0.5 border-t border-ink-700 px-2.5 py-1.5 text-[11px] text-ink-200" aria-live="polite">
+        <p className="truncate" data-testid="camera-dock-status">
+          {statusText}
+        </p>
+        {lastTrigger ? (
+          <p className={cn("truncate", lastTrigger.ok ? "text-ok" : "text-warn")} data-testid="camera-dock-last" title={lastTrigger.message}>
+            {tr(`gesture.pose.${lastTrigger.gesture}`)} → {lastTrigger.message}
+          </p>
+        ) : null}
       </div>
     </div>
   );

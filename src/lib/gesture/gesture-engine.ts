@@ -44,9 +44,12 @@ export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
   smoothing: 0.35,
   minConfidence: 0.6,
   minHandSize: 0.1,
-  minInFrame: 0.85,
+  // 0.6: a raised hand often has its fingertips above the frame; the palm decides the height.
+  minInFrame: 0.6,
   requireOpenForOff: true,
-  maxFrameGapMs: 300,
+  // 1000 ms: still works at ~1-2 fps (software WebGL, busy phones). 300 ms made every frame on a
+  // 2 fps stream reset the dwell, so gestures could never trigger there.
+  maxFrameGapMs: 1000,
   rearmMargin: 0.05,
   lostResetMs: 600,
 };
@@ -82,6 +85,8 @@ export interface HandFrame {
   /** timestamp in ms (monotonic) */
   t: number;
   hands: HandObservation[];
+  /** video width / height (landmarks are normalized per axis) */
+  aspect?: number;
 }
 
 export function validateGestureConfig(cfg: GestureConfig): string | null {
@@ -176,7 +181,7 @@ export class GestureEngine {
     }
     this.lostSince = null;
 
-    const features = computeHandFeatures(hand.landmarks);
+    const features = computeHandFeatures(hand.landmarks, frame.aspect);
     const confidence = Number.isFinite(hand.score) ? hand.score : 0;
     if (
       !features ||

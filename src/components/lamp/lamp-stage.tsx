@@ -3,7 +3,6 @@
 import { Power } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CameraRuntime } from "@/components/gesture/camera-runtime";
 import { Badge } from "@/components/ui/primitives";
 import { detectLowPower, detectWebGL, useIsClient, useNow, useReducedMotion } from "@/lib/device";
 import { experienceLampView } from "@/lib/experience/lamp-view";
@@ -147,8 +146,6 @@ export function LampStage() {
           {pending ? t("lamp.sending") : isSim ? t("lamp.tapToggle") : t("lamp.toggle")}
         </button>
       </div>
-
-      <CameraRuntime />
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}

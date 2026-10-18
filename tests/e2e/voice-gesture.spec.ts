@@ -97,7 +97,8 @@ test.describe("gesture camera", () => {
     await page.getByTestId("enable-camera").click();
     await expect(page.locator("video")).toHaveCount(1);
     // Chromium's fake camera shows no hand: the tracker must report that instead of guessing.
-    await expect(page.getByText("No hand detected").first()).toBeVisible({ timeout: 90_000 });
+    await expect(page.getByTestId("gesture-pose")).toContainText("No hand", { timeout: 90_000 });
+    await expect(page.getByTestId("camera-dock")).toBeVisible(); // global dock, visible on every page
     await page.getByRole("button", { name: "Turn camera off" }).first().click();
     await expect(page.locator("video")).toHaveCount(0);
   });

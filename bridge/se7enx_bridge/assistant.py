@@ -18,17 +18,18 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 import httpx2
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .config import Settings
 from .core.rbac import PERMISSIONS
 from .devices.model import ApiModel, DeviceError
 from .security import Session, SlidingWindowLimiter
+from .stt import SttClient
 
 log = logging.getLogger("se7enx.assistant")
 audit = logging.getLogger("se7enx.audit")
@@ -193,15 +194,36 @@ def build_assistant_router(
     interpreter: LlmInterpreter,
     require: Callable[[str], Callable[..., Awaitable[Session]]],
     limit: Callable[[SlidingWindowLimiter, str, str], None],
+    stt: SttClient | None = None,
 ) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
     need = {p: require(p) for p in PERMISSIONS}
     limiter = SlidingWindowLimiter(10, 60.0)
     global_limiter = SlidingWindowLimiter(30, 60.0)
+    stt_limiter = SlidingWindowLimiter(20, 60.0)
+    stt_global = SlidingWindowLimiter(60, 60.0)
 
     @r.get("/assistant")
     async def assistant_info(_s: Session = Depends(need["assistant.use"])) -> dict[str, Any]:
-        return {"llm": {"enabled": interpreter.enabled, "model": interpreter.model, "host": interpreter.host}}
+        return {
+            "llm": {"enabled": interpreter.enabled, "model": interpreter.model, "host": interpreter.host},
+            "stt": stt.info() if stt else {"enabled": False, "model": None, "host": None, "maxSeconds": 0},
+        }
+
+    @r.post("/assistant/transcribe")
+    async def transcribe(
+        request: Request,
+        lang: Annotated[str | None, Query(max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$")] = None,
+        session: Session = Depends(need["assistant.use"]),
+    ) -> dict[str, Any]:
+        """Raw audio body (Content-Type audio/webm|ogg|mp4|wav|...) -> text. Nothing is stored."""
+        if stt is None or not stt.enabled:
+            raise DeviceError("STT_DISABLED", "Local speech recognition is not configured on this hub.", status=404)
+        limit(stt_limiter, session.id, "speech requests")
+        limit(stt_global, "all", "speech requests")
+        audio = await request.body()
+        audit.info("assistant transcribe client=%r bytes=%d", session.client_name, len(audio))
+        return await stt.transcribe(audio, request.headers.get("content-type"), lang)
 
     @r.post("/assistant/interpret")
     async def interpret(body: InterpretRequest, session: Session = Depends(need["assistant.use"])) -> dict[str, Any]:

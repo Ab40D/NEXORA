@@ -49,6 +49,7 @@ from .group_address import GroupAddressError, GroupAddressPolicy, parse_group_ad
 from .hosts import HostPolicy
 from .knx import GatewayTarget, KnxError, KnxService, KnxStatus, gateway_allowed, now_iso
 from .security import PairingManager, Session, SessionStore, SlidingWindowLimiter, format_code
+from .stt import MAX_AUDIO_BYTES, SttClient
 
 log = logging.getLogger("se7enx.api")
 audit = logging.getLogger("se7enx.audit")
@@ -58,6 +59,8 @@ MAX_LIGHTS_PER_SESSION = 16
 MAX_STREAMS_PER_SESSION = 3
 MAX_STREAMS_TOTAL = 50
 MAX_BODY_BYTES = 16 * 1024
+# Endpoints that legitimately receive larger bodies (recorded voice commands).
+BODY_LIMITS = {"/api/v1/assistant/transcribe": MAX_AUDIO_BYTES + 1024}
 PING_INTERVAL_S = 15.0
 IDEMPOTENCY_WINDOW_S = 120.0
 
@@ -229,7 +232,7 @@ class SecurityMiddleware:
             if cl is None and headers.get("transfer-encoding"):
                 await reply(error_response(411, "LENGTH_REQUIRED", "Content-Length is required."))
                 return
-            if cl is not None and (not cl.isdigit() or int(cl) > MAX_BODY_BYTES):
+            if cl is not None and (not cl.isdigit() or int(cl) > BODY_LIMITS.get(path, MAX_BODY_BYTES)):
                 await reply(error_response(413, "PAYLOAD_TOO_LARGE", "Request body too large."))
                 return
 
@@ -371,10 +374,12 @@ def create_app(
     knx: KnxService | None = None,
     adapter_factories: dict[str, Callable[[AdapterCallbacks], DeviceAdapter]] | None = None,
     assistant: LlmInterpreter | None = None,
+    speech: SttClient | None = None,
 ) -> FastAPI:
     knx_service = knx or KnxService(settings)
     state = BridgeState(settings, knx_service, adapter_factories)
     interpreter = assistant or LlmInterpreter(settings)
+    stt = speech or SttClient(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -386,6 +391,12 @@ def create_app(
                 "AI intent provider enabled: model %s at %s (typed/spoken requests are sent to it)",
                 interpreter.model,
                 interpreter.host,
+            )
+        if stt.enabled:
+            log.info(
+                "Local speech recognition enabled: model %s at %s (recorded commands are sent to it)",
+                stt.model,
+                stt.host,
             )
         if settings.allowed_hosts is not None:
             log.info("Allowed hosts: %s (same-origin requests accepted)", ", ".join(settings.allowed_hosts))
@@ -420,6 +431,7 @@ def create_app(
             await state.registry.stop()
             await knx_service.stop()
             await interpreter.aclose()
+            await stt.aclose()
             state.db.close()
 
     app = FastAPI(
@@ -886,7 +898,7 @@ def create_app(
         build_device_router(state.registry, auth, state.audit, limit, state.cmd_limiter, state.global_cmd_limiter)
     )
     app.include_router(build_knx_interface_router(settings, knx_service, state.registry, require, limit))
-    app.include_router(build_assistant_router(interpreter, require, limit))
+    app.include_router(build_assistant_router(interpreter, require, limit, stt))
     app.include_router(build_tls_router(settings))
     mount_setup_page(app, settings)
 

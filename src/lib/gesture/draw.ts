@@ -1,5 +1,6 @@
 import type { GestureUpdate } from "./gesture-engine";
 import type { Landmark } from "./hand-features";
+import type { RecognizerUpdate } from "./recognizer";
 
 const CONNECTIONS: Array<[number, number]> = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -100,6 +101,63 @@ export function drawOverlay(
         ctx.arc(cx, cy, 16 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * update.progress);
         ctx.stroke();
       }
+    }
+  }
+}
+
+export interface PoseOverlayOptions {
+  showLandmarks: boolean;
+  mirror: boolean;
+  dpr: number;
+}
+
+/** Hand skeleton + hold progress for the static-pose profiles. */
+export function drawPoseOverlay(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  hands: Landmark[][],
+  update: RecognizerUpdate | null,
+  opts: PoseOverlayOptions,
+): void {
+  const { dpr } = opts;
+  ctx.clearRect(0, 0, width, height);
+  if (!opts.showLandmarks) return;
+  const px = (l: Landmark) => (opts.mirror ? 1 - l.x : l.x) * width;
+  const py = (l: Landmark) => l.y * height;
+  const good = update?.status === "holding" || update?.status === "fired";
+  const weak = update?.status === "low-quality" || update?.status === "no-pose";
+  for (const lm of hands) {
+    if (lm.length < 21) continue;
+    ctx.strokeStyle = weak ? "rgba(150,150,150,0.65)" : good ? "rgba(255,255,255,0.95)" : "rgba(220,220,220,0.8)";
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    for (const [a, b] of CONNECTIONS) {
+      const la = lm[a];
+      const lb = lm[b];
+      if (!la || !lb) continue;
+      ctx.moveTo(px(la), py(la));
+      ctx.lineTo(px(lb), py(lb));
+    }
+    ctx.stroke();
+    ctx.fillStyle = weak ? "rgba(150,150,150,0.9)" : "rgba(255,255,255,1)";
+    for (const l of lm) {
+      ctx.beginPath();
+      ctx.arc(px(l), py(l), 2.4 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (update && update.progress > 0) {
+      const cx = [0, 5, 9, 13, 17].reduce((s, i) => s + px(lm[i]!), 0) / 5;
+      const cy = [0, 5, 9, 13, 17].reduce((s, i) => s + py(lm[i]!), 0) / 5;
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.lineWidth = 3 * dpr;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 18 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = update.status === "fired" ? "rgba(74,222,128,1)" : "rgba(255,255,255,1)";
+      ctx.beginPath();
+      ctx.arc(cx, cy, 18 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * update.progress);
+      ctx.stroke();
     }
   }
 }

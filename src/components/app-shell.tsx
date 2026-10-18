@@ -7,6 +7,7 @@ import { ActivityPanel } from "@/components/activity/activity-panel";
 import { AuthBoot, AuthDialog, AuthGate, GuestBanner } from "@/components/auth/auth-gate";
 import { BuildingPanel } from "@/components/building/building-panel";
 import { ConnectWorkspace } from "@/components/experience/connect-workspace";
+import { CameraRuntime } from "@/components/gesture/camera-runtime";
 import { ExperiencePanel } from "@/components/experience/experience-panel";
 import { WelcomeIntro } from "@/components/experience/welcome-intro";
 import { Header } from "@/components/header";
@@ -203,6 +204,7 @@ export function AppShell() {
         <ConnectionWizard />
         <WelcomeIntro />
         <AuthDialog />
+        <CameraRuntime />
       </div>
       </AuthGate>
     </Direction.Provider>
