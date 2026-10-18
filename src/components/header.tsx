@@ -1,6 +1,7 @@
 "use client";
 
 import { Cable, Clapperboard, OctagonX, Play } from "lucide-react";
+import { AccountMenu } from "@/components/auth/account-menu";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ export function Header() {
           </Badge>
 
           <LanguageSwitcher />
+          <AccountMenu />
           <Button
             variant="ghost"
             size="icon"

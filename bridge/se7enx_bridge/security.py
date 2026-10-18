@@ -64,6 +64,16 @@ class SlidingWindowLimiter:
                 self._hits.pop(k, None)
         return True, 0.0
 
+    def blocked_for(self, key: str) -> float:
+        """Seconds until `key` may hit again (0 = not blocked). Does not record a hit."""
+        now = self.clock()
+        q = self._hits.get(key)
+        if not q:
+            return 0.0
+        while q and now - q[0] >= self.window:
+            q.popleft()
+        return max(0.0, self.window - (now - q[0])) if len(q) >= self.limit else 0.0
+
 
 class PairingManager:
     """Holds the current pairing code; random codes rotate on use and on expiry."""

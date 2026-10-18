@@ -65,6 +65,12 @@ interface HubStore {
 let client: BridgeClient | null = null;
 let stream: EventStreamHandle | null = null;
 let rid = 0;
+let onAuthLost: (() => void) | null = null;
+
+/** The auth store registers here, so a revoked/expired session anywhere signs the user out of the UI. */
+export function setHubAuthLostHandler(fn: (() => void) | null): void {
+  onAuthLost = fn;
+}
 
 export function hubClient(): BridgeClient {
   if (!client) throw new AdapterError("HUB_NOT_CONNECTED", "Not connected to a SE7ENX hub.");
@@ -76,6 +82,8 @@ function makeClient(baseUrl: string, token: string | null): BridgeClient {
   return new BridgeClient({
     baseUrl,
     token,
+    // Appliance: the hub's HttpOnly session cookie authenticates (no token in JavaScript).
+    cookieAuth: APPLIANCE,
     targetAddressSpace: check && check.ok ? check.targetAddressSpace : undefined,
     appOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
   });
@@ -101,13 +109,13 @@ export const useHub = create<HubStore>((set, get) => ({
     if (get().status === "connecting") return;
     const session = peekBridgeSession();
     const baseUrl = APPLIANCE && typeof window !== "undefined" ? window.location.origin : (session?.baseUrl ?? null);
-    if (!baseUrl || !session || session.baseUrl !== baseUrl) {
+    if (!baseUrl || (!APPLIANCE && (!session || session.baseUrl !== baseUrl))) {
       set({ status: "needs_pairing", baseUrl, error: null });
       return;
     }
     set({ status: "connecting", baseUrl, error: null });
     stream?.close();
-    client = makeClient(baseUrl, session.token);
+    client = makeClient(baseUrl, APPLIANCE ? null : (session?.token ?? null));
     try {
       const [list, integ] = await Promise.all([client.devices(), client.integrations()]);
       set({
@@ -121,7 +129,13 @@ export const useHub = create<HubStore>((set, get) => ({
     } catch (err) {
       if (err instanceof AdapterError && err.status === 401) {
         clearBridgeSession();
-        set({ status: "needs_pairing", error: { message: "The hub session expired or was revoked. Pair again." } });
+        set({ status: "needs_pairing", error: { message: "The hub session expired or was revoked. Sign in or pair again." } });
+        onAuthLost?.();
+        return;
+      }
+      if (err instanceof AdapterError && err.status === 403) {
+        // Signed in, but this role may not view devices: not an error of the hub.
+        set({ status: "ready", devices: {}, order: [], integrations: [], error: null });
         return;
       }
       if (err instanceof AdapterError && err.status === 404) {
@@ -147,7 +161,8 @@ export const useHub = create<HubStore>((set, get) => ({
       },
       onAuthError: () => {
         clearBridgeSession();
-        set({ status: "needs_pairing", error: { message: "The hub session expired or was revoked. Pair again." } });
+        set({ status: "needs_pairing", error: { message: "The hub session expired or was revoked. Sign in or pair again." } });
+        onAuthLost?.();
       },
     });
   },

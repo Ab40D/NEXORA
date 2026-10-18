@@ -305,3 +305,73 @@ Command policy errors: `400 UNSUPPORTED_COMMAND`, `403 CONTROL_NOT_ENABLED`, `42
 
 In addition to the events above: `device.state` (full Device), `device.removed` (`{ id }`),
 `integration.status`, `safety`. These are hub-wide and sent to every session.
+
+## SE7ENX Core API: accounts, roles, building, ledger (hub ≥ 1.3, M1)
+
+### Authentication modes
+
+| Mode | When | Transport |
+| --- | --- | --- |
+| **Account, cookie** | UI served by the hub (appliance, same origin) | `HttpOnly; SameSite=Strict; Path=/` cookie `se7enx_session` (`__Host-se7enx_session` + `Secure` under HTTPS). **Unsafe methods must carry a same-origin `Origin`** (or `Sec-Fetch-Site: same-origin`), otherwise `403 CSRF_REJECTED`. |
+| **Account, bearer** | Allowed cross-origin web apps (`SE7ENX_ALLOWED_ORIGINS`), scripts | `Authorization: Bearer <token>`; the token is returned once by sign-in when `transport: "bearer"` is requested or the request is cross-origin. |
+| **Legacy pairing** | Only while **no account exists** | `POST /pair` → bearer token with full rights. After the owner account is created: `403 PAIRING_DISABLED`, and existing pairing sessions are revoked. |
+
+Every route except the public ones below requires a session **and a permission**. Roles and default permissions are listed
+by `GET /roles`; the matrix is in `bridge/se7enx_bridge/core/rbac.py`. A refusal is `403 FORBIDDEN`, its hint names the
+missing permission, and it is recorded in the ledger as `access.denied`.
+
+### Public routes (rate limited per IP)
+
+| Route | Body | Notes |
+| --- | --- | --- |
+| `GET /auth/status` | – | `{mode: "accounts"\|"pairing", setupRequired, registration, passwordMinLength, me}`; `me` is set when the request carries a valid session |
+| `POST /auth/setup` | `{setupCode, username, displayName, password, email?, remember, transport, clientName}` | Only while no account exists. `setupCode` = console code (`SE7ENX_PAIRING_CODE` or the rotating code). The password is validated **before** the single-use code is spent. `201` + session |
+| `POST /auth/login` | `{login, password, remember, transport, clientName}` | `login` = username or e-mail. Errors: `401 LOGIN_FAILED` (generic for unknown users and wrong passwords), `429 TOO_MANY_ATTEMPTS` (progressive lockout per login name), `403 ACCOUNT_DISABLED` |
+| `POST /auth/register` | `{inviteCode?, username, displayName, password, email?, …}` | Allowed only when `registration` is `invite` (code required) or `open` (role `user`); else `403 REGISTRATION_DISABLED` |
+| `POST /auth/reset` | `{code, newPassword, …}` | Redeems a one-time reset code (admin-issued or CLI), revokes all sessions of that user, signs in |
+
+Session responses: `{user, permissions[], preferences, session, transport, token?}`.
+
+### Own account
+
+`POST /auth/logout` (204, clears the cookie) · `GET /auth/me` · `PATCH /auth/me` `{displayName?, email?, preferences?}` ·
+`POST /auth/password` `{currentPassword, newPassword}` (revokes the other sessions) · `GET /auth/sessions` ·
+`DELETE /auth/sessions/{id}`.
+
+`preferences`: `language` (en/fr/ar/dz), `theme`, `personality` (professional/friendly/playful), `guideLevel`,
+`guideEnabled`, `reducedMotion`, `homeView`, `dismissed[]`. At most 4 KB.
+
+### Administration
+
+| Route | Permission | Notes |
+| --- | --- | --- |
+| `GET /users` · `POST /users` · `PATCH /users/{id}` · `DELETE /users/{id}` | `user.manage` | Rank rule: only users ranked **below** you (owner: everyone). The last active owner can't be demoted, disabled or deleted. No self role change or self-disable. `POST /users` without `password` returns `setupCode {code, expiresAt}` (24 h, single use) |
+| `POST /users/{id}/reset-code` | `user.manage` | `{code, expiresAt}`; valid 30 min, single use, replaces older codes |
+| `GET /invites` · `POST /invites {role, ttlHours}` · `DELETE /invites/{id}` | `user.manage` | The code is returned once |
+| `GET /roles` | `user.manage` or `role.manage` | `{roles, rank, editable, permissions{key: description}, matrix{role: [perm]}}` |
+| `PUT /roles/{role}` `{permissions}` | `role.manage` | The owner role can't be edited; only the owner edits `admin` or grants `role.manage` / `system.configure`; you can't grant what you don't hold |
+| `GET`/`PUT /system/security` `{registration}` | `system.configure` | `disabled` (default), `invite` or `open` |
+| `GET /audit?limit&before&action&actor&targetType&targetId&outcome` | `audit.view` | Ledger entries, newest first: `{id, at, actor{id,name,role}, source, action, target, outcome, details}`; `next` = cursor |
+
+### Building model
+
+| Route | Permission |
+| --- | --- |
+| `GET /building` → `{sites, buildings, floors, rooms, zones, placement{roomId: [deviceId]}}` | `building.view` |
+| `POST /building/{sites\|buildings\|floors\|rooms\|zones}` | `building.edit` |
+| `PATCH /building/{collection}/{id}` | `building.edit` |
+| `DELETE /building/{collection}/{id}[?cascade=true]` → `{deleted, unassignedDevices}` | `building.edit` |
+| `POST /building/import` `{sites: [{id? \| name, timezone?, buildings: [{name, kind, floors: [{name, level, rooms: [{name, kind}]}]}]}]}` (atomic) | `building.edit` |
+| `PUT /devices/{id}/room` `{roomId \| null}` | `device.configure` |
+
+Errors: `409 NAME_TAKEN` (siblings, case-insensitive), `422 PARENT_NOT_FOUND`, `422 ROOM_NOT_IN_BUILDING` (zones),
+`409 NOT_EMPTY` (delete without cascade), `422 MOVE_ACROSS_BUILDINGS`. Devices are never deleted by a cascade: they are
+only un-assigned.
+
+### Recovery (host console)
+
+```bash
+se7enx-bridge users                       # list accounts
+se7enx-bridge reset-password <username>   # prints a one-time reset code (30 min); enter it in "I have a reset code"
+# Docker: docker compose exec se7enx se7enx-bridge reset-password <username>
+```

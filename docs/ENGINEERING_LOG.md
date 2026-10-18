@@ -32,3 +32,31 @@ Test numbers are only recorded when the suite was actually run.
 
 ### M1 — in progress
 - Next: SQLite core store → identity/RBAC → building model → audit ledger → API → UI → tests.
+
+### M1 — done (2026-10-18)
+- Backend (commit `599509a`):
+  - Core modules `db`, `passwords`, `identity`, `rbac`, `audit`, `building_model`, `building`;
+  - HTTP modules `auth.py`, `api_auth.py`, `api_building.py`;
+  - permissions on every existing route; CLI recovery.
+- Web:
+  - typed contracts (`src/lib/core/contract.ts`); `BridgeClient` cookie mode plus the Core methods;
+  - stores `useAuth` and the hub store in cookie mode;
+  - components: auth gate, forms, account menu, guest banner; Building, Activity and Settings (users, invitations,
+    roles) workspaces;
+  - 265 new dictionary strings in each of EN/FR/AR/DZ (counted from the diff).
+- Decisions during implementation:
+  - The per-IP sign-in limit counts **failures only**. Counting successes would lock out whole offices behind a
+    reverse proxy; the issue surfaced while re-running the appliance suite.
+  - The account language preference is applied on sign-in.
+  - The `no-cors` reachability probe was rejected: the hub's CORP header blocks it.
+- Visual review (Playwright screenshots, EN/AR/DZ) found and fixed two bugs:
+  - the tab bar squeezed its labels with 10 tabs; it now scrolls without shrinking;
+  - the room-placement select overflowed room cards.
+- Test stability: `test_shelly_unreachable_device_goes_offline` had a pre-existing poll race that shows up under CPU
+  load. It now accepts both truthful 503 codes; the HTTP-error mapping stays covered by the identify test.
+- Verified on the final code:
+  - pytest **181 passed**; ruff clean; vitest **238 passed**; tsc and eslint clean;
+  - Playwright **34 passed / 1 skipped** (known mobile keyboard skip);
+  - appliance suite against a real hub serving the static UI: **4/4**, twice in a row.
+- Not verified: real hardware (KNX/Shelly/HA, unchanged since Phase E); Docker image rebuild with `argon2-cffi`
+  (pinned in `constraints.txt`, wheels exist for x86-64/arm64, but not built in this session); TOTP MFA (planned).

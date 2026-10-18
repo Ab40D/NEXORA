@@ -13,19 +13,19 @@ intents + optional LLM), EN/FR/AR/Darija with RTL · ✅ hub with KNX/IP (xknx),
 Assistant (server-side), simulated devices, safety stop, first-test gate, Docker appliance ·
 🧪 all real-hardware paths verified against protocol-level fakes only.
 
-## M1 — Foundation: identity, building model, ledger (current)
+## M1 — Foundation: identity, building model, ledger (done 2026-10-18)
 
 | Deliverable | Acceptance test | Status |
 | --- | --- | --- |
 | Research & decision record, innovation backlog, roadmap, engineering log | Docs exist with sources and dates | ✅ |
-| SQLite core store (migrations, WAL) | pytest: migrations idempotent, persistence across restart | 🟡 |
-| Users, Argon2id, NIST password rules, first-run owner setup with console code | pytest + e2e: owner setup, login, logout, wrong password generic error, lockout | 🟡 |
-| Persistent sessions: HttpOnly SameSite cookie (same-origin) / bearer (cross-origin), idle + absolute timeout, revoke, list | pytest: cookie flags, CSRF origin check, expiry, revoke | 🟡 |
-| Roles + server-enforced permission matrix (configurable, owner fixed) on **every** hub route | pytest: each role × route; unauthorized command blocked (403) and audited | 🟡 |
-| Invites/registration, admin user management, one-time reset codes, CLI recovery | pytest + e2e | 🟡 |
-| Building model (sites, buildings, floors, rooms, zones) + device placement | pytest + e2e: create building, add rooms, assign device | 🟡 |
-| Audit ledger (I-01) with retention | pytest: commands/config/auth events recorded without secrets | 🟡 |
-| UI: onboarding, sign-in, account, users, building & rooms views, guest mode banner | Playwright appliance suite | 🟡 |
+| SQLite core store (migrations, WAL) | pytest: migrations idempotent, persistence across restart | ✅ |
+| Users, Argon2id, NIST password rules, first-run owner setup with console code | pytest + e2e: owner setup, login, logout, wrong password generic error, lockout |✅ |
+| Persistent sessions: HttpOnly SameSite cookie (same-origin) / bearer (cross-origin), idle + absolute timeout, revoke, list | pytest: cookie flags, CSRF origin check, expiry, revoke |✅ |
+| Roles + server-enforced permission matrix (configurable, owner fixed) on **every** hub route | pytest: each role × route; unauthorized command blocked (403) and audited |✅ |
+| Invites/registration, admin user management, one-time reset codes, CLI recovery | pytest + e2e |✅ |
+| Building model (sites, buildings, floors, rooms, zones) + device placement | pytest + e2e: create building, add rooms, assign device |✅ |
+| Audit ledger (I-01) with retention | pytest: commands/config/auth events recorded without secrets |✅ |
+| UI: onboarding, sign-in, account, users, building & rooms views, guest mode banner | Playwright appliance suite |✅ |
 
 ## M2 — Building operations UX
 

@@ -136,7 +136,8 @@ def build_auth_router(
     r = APIRouter(prefix="/api/v1")
     need = {p: auth.require(p) for p in PERMISSIONS}
     need_session = auth.require()
-    login_limiter = SlidingWindowLimiter(10, 300.0)
+    # Failed sign-ins per IP (successful ones are not counted: behind a reverse proxy every user shares one IP).
+    login_failures = SlidingWindowLimiter(10, 300.0)
     setup_limiter = SlidingWindowLimiter(5, 60.0)
     register_limiter = SlidingWindowLimiter(5, 600.0)
     account_limiter = SlidingWindowLimiter(20, 60.0)
@@ -262,12 +263,21 @@ def build_auth_router(
     @r.post("/auth/login")
     async def login(body: LoginRequest, request: Request) -> JSONResponse:
         ip = client_ip(request)
-        limit(login_limiter, ip, "sign-in attempts")
+        wait = login_failures.blocked_for(ip)
+        if wait > 0:
+            raise ApiError(
+                429,
+                "RATE_LIMITED",
+                f"Too many failed sign-ins from this device. Try again in {max(1, round(wait))} s.",
+                retry_after=wait,
+            )
         if not auth.accounts_enabled:
             raise ApiError(409, "SETUP_REQUIRED", "No account exists yet.", "Create the owner account first.")
         try:
             user = await cpu(identity.verify_login, body.login, body.password)
         except IdentityError as err:
+            if err.status == 401:
+                login_failures.hit(ip)
             known = identity.find_by_login(body.login)
             # Never record an unknown login string: people sometimes type their password into the username field.
             who = (

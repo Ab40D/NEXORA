@@ -3,11 +3,12 @@
 import { Boxes, Download, OctagonX, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge, Callout, Card, CardHeader, Input, Label } from "@/components/ui/primitives";
+import { Badge, Callout, Card, CardHeader } from "@/components/ui/primitives";
 import { describeError } from "@/lib/adapters/types";
 import { useNow } from "@/lib/device";
 import type { IntegrationStatus } from "@/lib/hub/contract";
 import { relativeTime } from "@/lib/hub/format";
+import { useAuth } from "@/lib/core/auth-store";
 import { APPLIANCE, hubClient, useHub } from "@/lib/hub/hub-store";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { useUi } from "@/lib/state/ui-store";
@@ -27,21 +28,10 @@ const STATE_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
 const KNOWN_STATES = new Set(["connected", "connecting", "degraded", "disconnected", "auth_failed", "error", "not_configured"]);
 const INTEGRATIONS = new Set(["simulated", "shelly", "homeassistant", "knx"]);
 
-function clientName(): string {
-  if (typeof navigator === "undefined") return "SE7ENX web";
-  const ua = navigator.userAgent;
-  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Browser";
-  return `SE7ENX web · ${browser}`;
-}
-
 export function PairCard() {
   const { t } = useT();
-  const pair = useHub((s) => s.pair);
   const error = useHub((s) => s.error);
   const openWizard = useUi((s) => s.openWizard);
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   if (!APPLIANCE) {
     return (
       <Card>
@@ -56,30 +46,16 @@ export function PairCard() {
       </Card>
     );
   }
+  // Appliance: the hub's data needs a SE7ENX account (pairing codes are only used for the first owner setup).
   return (
     <Card>
-      <CardHeader title={t("hub.panel.pairTitle")} subtitle={t("hub.panel.pairSubtitle")} icon={<ShieldCheck className="h-4 w-4" />} />
-      <form
-        className="space-y-3 p-4 pt-0"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setBusy(true);
-          setErr(null);
-          void pair(code.toUpperCase().replace(/[^A-Z0-9]/g, ""), clientName())
-            .catch((x) => setErr(describeError(x).message))
-            .finally(() => setBusy(false));
-        }}
-      >
-        <p className="text-xs text-ink-300">{t("hub.panel.pairHelp", { command: "docker compose logs se7enx" })}</p>
-        <div className="space-y-1">
-          <Label htmlFor="hub-code">{t("hub.panel.pairCode")}</Label>
-          <Input id="hub-code" dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ABCD-EFGH" autoComplete="one-time-code" />
-        </div>
-        {err || error ? <p className="text-xs text-danger">{err ?? error?.message}</p> : null}
-        <Button type="submit" variant="primary" size="sm" disabled={busy || code.replace(/[^A-Za-z0-9]/g, "").length < 4}>
-          {t("hub.panel.pair")}
+      <CardHeader title={t("hub.panel.title")} subtitle={t("auth.guest.banner")} icon={<ShieldCheck className="h-4 w-4" />} />
+      <div className="space-y-3 p-4 pt-0 text-sm text-ink-200">
+        <p>{t("auth.guest.note")}</p>
+        <Button variant="primary" size="sm" onClick={() => useAuth.getState().stopGuest()} data-testid="hub-signin">
+          {t("auth.guest.signIn")}
         </Button>
-      </form>
+      </div>
     </Card>
   );
 }

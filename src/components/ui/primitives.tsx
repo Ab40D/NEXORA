@@ -203,7 +203,10 @@ export const TabsContent = forwardRef<HTMLDivElement, RTabs.TabsContentProps>(fu
 
 export function TabsList({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <RTabs.List className={cn("flex gap-1 rounded-xl border border-ink-700 bg-ink-900/80 p-1", className)}>{children}</RTabs.List>
+    // Scrolls horizontally when there are more tabs than room (account workspaces add tabs); never squeezes labels.
+    <RTabs.List className={cn("flex gap-1 overflow-x-auto rounded-xl border border-ink-700 bg-ink-900/80 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", className)}>
+      {children}
+    </RTabs.List>
   );
 }
 
@@ -211,7 +214,7 @@ export function TabsTrigger({ value, children, badge }: { value: string; childre
   return (
     <RTabs.Trigger
       value={value}
-      className="relative inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold text-ink-300 transition-colors hover:text-ink-100 data-[state=active]:bg-ink-700 data-[state=active]:text-white data-[state=active]:shadow-[inset_0_-2px_0_0_var(--color-accent)] sm:text-sm"
+      className="relative inline-flex flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-xs font-semibold text-ink-300 transition-colors hover:text-ink-100 data-[state=active]:bg-ink-700 data-[state=active]:text-white data-[state=active]:shadow-[inset_0_-2px_0_0_var(--color-accent)] sm:text-sm"
     >
       {children}
       {badge}

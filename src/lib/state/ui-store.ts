@@ -2,7 +2,8 @@
 
 import { create } from "zustand";
 
-export type PanelTab = "experience" | "connect" | "control" | "gesture" | "voice" | "history" | "devices";
+export type PanelTab = "experience" | "connect" | "control" | "gesture" | "voice" | "history" | "devices" | "building" | "activity" | "settings";
+export type AuthDialogView = "signin" | "register" | "reset";
 
 /** localStorage key remembering that the welcome intro was seen (first visit only, Replay any time). */
 export const INTRO_SEEN_KEY = "se7enx.intro.v1";
@@ -17,6 +18,10 @@ interface UiStore {
   setTab: (tab: PanelTab) => void;
   openIntro: () => void;
   closeIntro: () => void;
+  /** Sign-in dialog (guests choosing to sign in; remote web app). */
+  authDialog: AuthDialogView | null;
+  openAuth: (view?: AuthDialogView) => void;
+  closeAuth: () => void;
 }
 
 export const useUi = create<UiStore>((set) => ({
@@ -26,6 +31,9 @@ export const useUi = create<UiStore>((set) => ({
   openWizard: () => set({ wizardOpen: true }),
   closeWizard: () => set({ wizardOpen: false }),
   setTab: (tab) => set({ tab }),
+  authDialog: null,
+  openAuth: (view = "signin") => set({ authDialog: view }),
+  closeAuth: () => set({ authDialog: null }),
   openIntro: () => set({ introOpen: true }),
   closeIntro: () => {
     try {

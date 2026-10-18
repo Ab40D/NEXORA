@@ -39,7 +39,7 @@ export const HubDeviceSchema = z.object({
   controlEnabled: z.boolean(),
   controlAllowed: z.boolean(),
   hidden: z.boolean(),
-  metadata: z.object({ room: z.string().optional(), tags: z.array(z.string()).optional(), linkedTo: z.string().optional() }),
+  metadata: z.object({ room: z.string().optional(), roomId: z.string().optional(), tags: z.array(z.string()).optional(), linkedTo: z.string().optional() }),
   connection: z.object({
     status: z.enum(["online", "offline", "unauthorized", "unavailable", "error", "unknown"]),
     lastSeen: z.string().nullable(),
@@ -150,7 +150,7 @@ export interface AddDeviceBody {
 export interface DevicePatchBody {
   name?: string;
   hidden?: boolean;
-  metadata?: { room?: string; tags?: string[]; linkedTo?: string };
+  metadata?: { room?: string; roomId?: string; tags?: string[]; linkedTo?: string };
   controlEnabled?: boolean;
   acknowledgeRealControl?: boolean;
 }

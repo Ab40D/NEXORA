@@ -1,8 +1,11 @@
 "use client";
 
-import { Boxes, Cable, History, Lightbulb, Mic, SlidersHorizontal, Hand } from "lucide-react";
+import { Boxes, Building2, Cable, History, Lightbulb, Mic, ScrollText, Settings, SlidersHorizontal, Hand } from "lucide-react";
 import { Direction } from "radix-ui";
 import { useEffect } from "react";
+import { ActivityPanel } from "@/components/activity/activity-panel";
+import { AuthBoot, AuthDialog, AuthGate, GuestBanner } from "@/components/auth/auth-gate";
+import { BuildingPanel } from "@/components/building/building-panel";
 import { ConnectWorkspace } from "@/components/experience/connect-workspace";
 import { ExperiencePanel } from "@/components/experience/experience-panel";
 import { WelcomeIntro } from "@/components/experience/welcome-intro";
@@ -13,10 +16,12 @@ import { ControlPanel } from "@/components/panels/control-panel";
 import { GesturePanel } from "@/components/panels/gesture-panel";
 import { HistoryPanel } from "@/components/panels/history-panel";
 import { VoicePanel } from "@/components/panels/voice-panel";
+import { SettingsPanel } from "@/components/settings/settings-panel";
 import { StateStrip } from "@/components/status/state-strip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
 import { ConnectionWizard } from "@/components/wizard/connection-wizard";
 import { useConversation } from "@/lib/assistant/conversation";
+import { useAuth } from "@/lib/core/auth-store";
 import { useExperience } from "@/lib/experience/store";
 import { useGestureStore } from "@/lib/gesture/gesture-store";
 import { I18nDocumentSync, useT } from "@/lib/i18n";
@@ -33,6 +38,15 @@ export function AppShell() {
   const listening = useVoiceStore((s) => s.listening);
   const chatListening = useConversation((s) => s.listening);
   const { t, dir } = useT();
+  const signedIn = useAuth((s) => s.status === "signed_in");
+  const perms = useAuth((s) => s.me?.permissions);
+  const canBuilding = signedIn && (perms?.includes("building.view") ?? false);
+  const canAudit = signedIn && (perms?.includes("audit.view") ?? false);
+
+  // Account workspaces disappear on sign-out: fall back to the experience view.
+  useEffect(() => {
+    if ((tab === "building" && !canBuilding) || (tab === "activity" && !canAudit) || (tab === "settings" && !signedIn)) setTab("experience");
+  }, [tab, canBuilding, canAudit, signedIn, setTab]);
 
   useEffect(() => {
     initVoiceSupport();
@@ -75,6 +89,9 @@ export function AppShell() {
   return (
     // Radix primitives set an explicit dir attribute; the provider keeps them in the UI direction.
     <Direction.Provider dir={dir}>
+      <AuthBoot />
+      <I18nDocumentSync />
+      <AuthGate>
       <div className="flex min-h-dvh flex-col">
         <a
           href="#controls"
@@ -82,8 +99,8 @@ export function AppShell() {
         >
           {t("shell.skip")}
         </a>
-        <I18nDocumentSync />
         <Header />
+        <GuestBanner />
         <main className="mx-auto grid w-full max-w-[1440px] flex-1 gap-4 px-3 py-4 sm:px-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(360px,1fr)] lg:gap-5">
           <div className="space-y-3 lg:sticky lg:top-[4.5rem] lg:self-start">
             <LampStage />
@@ -100,6 +117,12 @@ export function AppShell() {
                   <Lightbulb className="h-4 w-4" aria-hidden />
                   {t("tabs.experience")}
                 </TabsTrigger>
+                {canBuilding ? (
+                  <TabsTrigger value="building">
+                    <Building2 className="h-4 w-4" aria-hidden />
+                    {t("tabs.building")}
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="connect">
                   <Cable className="h-4 w-4" aria-hidden />
                   {t("tabs.connect")}
@@ -127,6 +150,18 @@ export function AppShell() {
                   <span className="hidden sm:inline">{t("tabs.history")}</span>
                   <span className="sm:hidden">{t("tabs.historyShort")}</span>
                 </TabsTrigger>
+                {canAudit ? (
+                  <TabsTrigger value="activity">
+                    <ScrollText className="h-4 w-4" aria-hidden />
+                    {t("tabs.activity")}
+                  </TabsTrigger>
+                ) : null}
+                {signedIn ? (
+                  <TabsTrigger value="settings">
+                    <Settings className="h-4 w-4" aria-hidden />
+                    {t("tabs.settings")}
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="control">
                   <SlidersHorizontal className="h-4 w-4" aria-hidden />
                   {t("tabs.control")}
@@ -153,6 +188,9 @@ export function AppShell() {
               <TabsContent value="history">
                 <HistoryPanel />
               </TabsContent>
+              <TabsContent value="building">{canBuilding ? <BuildingPanel /> : null}</TabsContent>
+              <TabsContent value="activity">{canAudit ? <ActivityPanel /> : null}</TabsContent>
+              <TabsContent value="settings">{signedIn ? <SettingsPanel /> : null}</TabsContent>
             </Tabs>
           </div>
         </main>
@@ -164,7 +202,9 @@ export function AppShell() {
         </footer>
         <ConnectionWizard />
         <WelcomeIntro />
+        <AuthDialog />
       </div>
+      </AuthGate>
     </Direction.Provider>
   );
 }

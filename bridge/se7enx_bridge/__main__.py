@@ -52,7 +52,7 @@ def cmd_serve(settings: Settings) -> None:
     )
     if settings.host not in ("127.0.0.1", "localhost", "::1"):
         log.warning(
-            "Listening on %s — the API is reachable from your network. Pairing is required; never expose this port to the internet.",
+            "Listening on %s — the API is reachable from your network. Sign-in (or the setup code before the first account) is required; never expose this port to the internet.",
             settings.host,
         )
     uvicorn.run(

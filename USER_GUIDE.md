@@ -206,6 +206,53 @@ doubt, look at the light.
 | **Group address** | The "number" of a light in KNX, written like `1/2/3`. Your installer knows it |
 | **Status (feedback) address** | A second number on which the light reports whether it is really on or off |
 | **SE7ENX Bridge** | A small program in your home network that passes commands to KNX safely |
-| **Pairing code** | A short code shown by the bridge that lets this device connect, like a TV pairing code |
+| **Pairing code** | A short code shown by the bridge that lets this device connect, like a TV pairing code (only before accounts are set up) |
+| **Setup code** | The same console code, used once to create the owner account |
+| **Reset code** | A one-time code (30 minutes) to choose a new password |
+| **Guest** | Someone exploring the simulation without an account |
 | **Simulation** | A pretend lamp for trying things out; never switches anything real |
 | **Hands-free** | Gesture and voice control |
+
+## 12. Accounts, roles and your building (SE7ENX hub)
+
+When SE7ENX runs on your own hub (the Docker appliance), your building's data belongs to accounts on that hub.
+
+**First start.** The page asks you to create the **owner** account. You need the **setup code** printed by the hub
+(`docker compose logs se7enx`), your name, a username, and a password of **at least 15 characters**. A few unrelated
+words are ideal, for example `violet tram sings at dawn`; no special characters are required. Tick **Keep me signed in**
+only on your own devices.
+
+**Signing in.** Use your username or e-mail. After a few wrong attempts SE7ENX makes you wait a little. The message
+never says whether the username or the password was wrong; that keeps strangers from guessing accounts.
+
+**Guests.** Choose **Explore as guest** to try the simulation. Guests cannot see or control anything in your building.
+A small banner reminds you that you are a guest, and **Sign in** is always one click away.
+
+**Roles.** Each account has one role. The hub checks every action, whatever the screen shows.
+
+| Role | Typical use | Can |
+| --- | --- | --- |
+| Owner | The person responsible for the building | Everything; can never be locked out |
+| Administrator | Trusted helper | Manage users below them, configure everything |
+| Engineer | Installer / integrator | Building model, devices, integrations, automations |
+| Technician | Maintenance | Operate devices, release the emergency stop, read the activity ledger |
+| User | Family member, employee | View the building, control devices, use Talk to SE7ENX, engage the emergency stop |
+
+**Adding people** (**Settings → Users and access**):
+
+- **Create an account.** Leave the password empty and SE7ENX shows a **one-time code**. Give it to the person face to
+  face. They choose **I have a reset code** on the sign-in page and pick their own password.
+- **Invitations.** Create an invitation for a role and share the code. Self-registration is **off** by default; you
+  can allow invitations only, or open registration.
+- **Forgotten passwords.** Choose **Reset code** next to the person's name. If nobody can sign in, someone with access
+  to the hub machine runs `docker compose exec se7enx se7enx-bridge reset-password <username>`.
+
+**Your building** (**Building** tab):
+
+- Start from a template (apartment, house, office) or create sites, buildings, floors and rooms yourself.
+- Place each device in its room. Room names can be in your language.
+- Deleting a floor or room never deletes devices; they only become "not placed".
+
+**Activity.** The **Activity** tab lists who did what and through which interface: app, voice, gesture, Talk to
+SE7ENX or the hub console. It also shows what really happened, for example *confirmed by the device*, *simulated* or
+*refused*. Passwords and codes are never recorded.

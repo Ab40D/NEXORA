@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Added: SE7ENX Core foundation (M1 of the Building OS roadmap)
+- **Accounts:**
+  - The owner account is created on first run with the console setup code.
+  - Sign-in by username or e-mail; *keep me signed in* (30 days).
+  - Profile, preferences (language follows the account; assistant personality), password change, list and revoke
+    signed-in devices.
+  - Single-use reset codes, issued by an administrator or by the host CLI: `se7enx-bridge reset-password`.
+  - Invitations and self-registration (off by default).
+- **Roles and permissions:**
+  - Five roles: owner, administrator, engineer, technician, user.
+  - A permission catalogue enforced by the hub on every API route.
+  - A configurable matrix with guardrails, and rank-based user management.
+- **Building model:** sites, buildings, floors, rooms and zones; device placement; templates (apartment, house, office)
+  imported atomically; stored in `config.json`, schema v2 (v1 files upgrade in place).
+- **Audit ledger:** who did what, through which interface (app, voice, gesture, assistant, console) and the real outcome.
+  Secrets are never stored. Retention is set with `SE7ENX_AUDIT_RETENTION_DAYS`. Shown in the **Activity** tab.
+- **UI:**
+  - Appliance: onboarding and sign-in gate.
+  - Guest mode (simulation only, remembered, never nagged).
+  - Account menu; **Building**, **Activity** and **Settings** tabs (users, invitations, roles matrix).
+  - All in English, French, Arabic and Algerian Darija.
+- **Docs:** research and decision record, roadmap, innovation backlog, engineering log; `docs/API.md` (Core API);
+  deployment and user guides.
+
+### Security
+- Passwords: Argon2id (m=19 MiB, t=2, p=1); NIST SP 800-63B-4 rules (min 15, no composition rules, blocklist).
+- Sessions persist in SQLite and only their hashes are stored.
+  - Same-origin UI: HttpOnly, SameSite=Strict cookie, with a CSRF check on the `Origin` header.
+  - Allowed cross-origin apps: bearer tokens.
+- Brute force: progressive lockout per login name, existing or not. The per-IP limit counts **failed** sign-ins only.
+- Once accounts exist, pairing is disabled. SE7-04 (no roles) is mitigated; see `SECURITY_AUDIT.md`.
+
 ### Fixed
 - **Dev stack showed the wrong address.** `bridge/tools/dev_stack.py` printed only the internal fake
   KNX interface (`127.0.0.1:<random UDP port>`), never the bridge URL. Entering that address in the

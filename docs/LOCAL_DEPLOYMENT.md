@@ -29,12 +29,34 @@ cd se7enx/deploy/appliance
 cp .env.example .env            # optional: all settings have safe defaults
 docker compose up -d --build    # builds se7enx:1.1.0 and starts it
 docker compose ps               # wait for "(healthy)", usually a few seconds
-docker compose logs se7enx      # shows the one-time pairing code
+docker compose logs se7enx      # shows the one-time setup code
 ```
 
-Open `http://<IP of this machine>:8787` (or `http://localhost:8787` on the machine itself), go to
-the **Devices** tab and enter the pairing code. Codes are single-use and rotate every 15 minutes. A
-new one is printed after each pairing.
+Open `http://<IP of this machine>:8787` (or `http://localhost:8787` on the machine itself). On the
+first visit SE7ENX asks you to **create the owner account**: enter the **setup code** from the
+container log (it proves you have access to the machine), your name, a username and a password of at
+least 15 characters. A few unrelated words make a good passphrase; no special characters are required.
+Codes are single-use and rotate every 15 minutes.
+
+Once the owner exists, the setup code is no longer used: everyone signs in with an account, and
+pairing is disabled. In **Settings → Users and access**, the owner and administrators can:
+
+* create accounts with a role (owner, administrator, engineer, technician, user);
+* hand out invitations; and
+* choose whether people may register themselves (off by default).
+
+Visitors who only want to try SE7ENX can choose **Explore as guest**. They get the simulation and
+cannot see or control your building.
+
+**Forgot a password?** An administrator can issue a one-time reset code in **Settings**. If nobody can
+sign in, use the host console, which requires access to the machine:
+
+```bash
+docker compose exec se7enx se7enx-bridge users
+docker compose exec se7enx se7enx-bridge reset-password <username>   # prints a 30-minute one-time code
+```
+
+Then choose **I have a reset code** on the sign-in page.
 
 ## 3. First steps in the UI
 
@@ -196,9 +218,14 @@ Always pin a version tag. There is no `latest` tag on purpose.
   `no-new-privileges`, no Docker socket, no device access, no host networking by default.
 * Only the UI/API port is published. Do not forward it on your router. Use a VPN (e.g. Tailscale) for
   remote access.
-* Browser sessions are created by pairing codes printed in the container log: whoever can read
-  `docker compose logs` can pair. There are no user roles yet; every paired browser can manage
-  devices (see [SECURITY_AUDIT.md](../SECURITY_AUDIT.md), SE7-04).
+* Accounts and roles:
+  - Every action needs a signed-in account whose role holds the required permission. This is
+    enforced by the hub and recorded in the audit ledger (**Activity** tab).
+  - The browser session is an HttpOnly, SameSite=Strict cookie that JavaScript cannot read.
+  - Whoever can read `docker compose logs` before the owner account exists could create it, so set
+    SE7ENX up right after starting it.
+  - Whoever can run `docker compose exec` can issue a reset code: treat host access as owner access.
+  - This addresses SE7-04 (no roles) in [SECURITY_AUDIT.md](../SECURITY_AUDIT.md).
 
 ## 13. Proxmox LXC (future)
 

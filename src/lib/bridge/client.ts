@@ -30,7 +30,36 @@ import {
   type Safety,
   type ShellyIdentity,
 } from "@/lib/hub/contract";
-import type { z } from "zod";
+import { z } from "zod";
+import {
+  AccountSessionSchema,
+  AuditPageSchema,
+  AuthStatusSchema,
+  BuildingSnapshotSchema,
+  CreatedInviteSchema,
+  CreatedUserSchema,
+  InvitesSchema,
+  MeSchema,
+  OneTimeCodeSchema,
+  RolesSchema,
+  SecuritySchema,
+  SignInResultSchema,
+  UpdatedUserSchema,
+  UsersSchema,
+  type AccountSession,
+  type AuthStatus,
+  type BuildingCollection,
+  type BuildingImportTree,
+  type BuildingSnapshot,
+  type Me,
+  type OneTimeCode,
+  type Preferences,
+  type Registration,
+  type Role,
+  type Roles,
+  type SignInResult,
+  type User,
+} from "@/lib/core/contract";
 import { AdapterError } from "@/lib/adapters/types";
 import { fetchWithTimeout, NetworkError } from "@/lib/net/http";
 import type { CommandSource, OnOff } from "@/lib/state/types";
@@ -71,6 +100,11 @@ export interface BridgeClientOptions {
   appOrigin?: string;
   /** event stream watchdogs (tests use shorter values) */
   streamTimeouts?: { firstByteMs?: number; idleMs?: number };
+  /**
+   * Same-origin account session (appliance): the hub's HttpOnly session cookie authenticates requests,
+   * no token is ever visible to JavaScript. Cross-origin clients use a bearer token instead.
+   */
+  cookieAuth?: boolean;
 }
 
 export interface EventStreamHandlers {
@@ -97,6 +131,7 @@ export class BridgeClient {
   private readonly appOrigin: string;
   private readonly firstByteMs: number;
   private readonly idleMs: number;
+  readonly cookieAuth: boolean;
 
   constructor(opts: BridgeClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -106,6 +141,7 @@ export class BridgeClient {
     this.appOrigin = opts.appOrigin ?? (typeof location !== "undefined" ? location.origin : "this site");
     this.firstByteMs = opts.streamTimeouts?.firstByteMs ?? STREAM_FIRST_BYTE_TIMEOUT_MS;
     this.idleMs = opts.streamTimeouts?.idleMs ?? STREAM_IDLE_TIMEOUT_MS;
+    this.cookieAuth = opts.cookieAuth ?? false;
   }
 
   get hasToken(): boolean {
@@ -151,8 +187,9 @@ export class BridgeClient {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.auth !== false) {
-      if (!this.token) throw new AdapterError("NOT_PAIRED", "This browser is not paired with the bridge yet.", { hint: "Enter the pairing code shown by the bridge." });
-      headers.Authorization = `Bearer ${this.token}`;
+      if (this.token) headers.Authorization = `Bearer ${this.token}`;
+      else if (!this.cookieAuth)
+        throw new AdapterError("NOT_PAIRED", "This browser is not paired with the bridge yet.", { hint: "Enter the pairing code shown by the bridge." });
     }
 
     let res: Response;
@@ -163,7 +200,7 @@ export class BridgeClient {
         body: body !== undefined ? JSON.stringify(body) : undefined,
         timeoutMs: opts.timeoutMs ?? this.timeoutMs,
         targetAddressSpace: this.targetAddressSpace,
-        credentials: "omit",
+        credentials: this.cookieAuth ? "same-origin" : "omit",
         cache: "no-store",
         mode: "cors",
       });
@@ -366,6 +403,141 @@ export class BridgeClient {
     return this.request("GET", "/config/export", null);
   }
 
+  // ------------------------------------------------------------------ SE7ENX Core: accounts (hub >= 1.3)
+
+  authStatus(): Promise<AuthStatus> {
+    return this.request("GET", "/auth/status", AuthStatusSchema, undefined, { auth: false, timeoutMs: 6000 });
+  }
+
+  private async signIn(path: string, body: Record<string, unknown>): Promise<SignInResult> {
+    const transport = this.cookieAuth ? "cookie" : "bearer";
+    const res = await this.request("POST", path, SignInResultSchema, { ...body, transport }, { auth: false, timeoutMs: 15000 });
+    if (res.token) this.token = res.token;
+    return res;
+  }
+
+  setupOwner(body: { setupCode: string; username: string; displayName: string; password: string; email?: string; remember: boolean; clientName: string }): Promise<SignInResult> {
+    return this.signIn("/auth/setup", body);
+  }
+
+  login(body: { login: string; password: string; remember: boolean; clientName: string }): Promise<SignInResult> {
+    return this.signIn("/auth/login", body);
+  }
+
+  register(body: { inviteCode?: string; username: string; displayName: string; password: string; email?: string; remember: boolean; clientName: string }): Promise<SignInResult> {
+    return this.signIn("/auth/register", body);
+  }
+
+  redeemResetCode(body: { code: string; newPassword: string; remember: boolean; clientName: string }): Promise<SignInResult> {
+    return this.signIn("/auth/reset", body);
+  }
+
+  async logout(): Promise<void> {
+    await this.request("POST", "/auth/logout", null, {});
+    this.token = null;
+  }
+
+  me(): Promise<Me> {
+    return this.request("GET", "/auth/me", MeSchema);
+  }
+
+  updateMe(body: { displayName?: string; email?: string | null; preferences?: Preferences }): Promise<Me> {
+    return this.request("PATCH", "/auth/me", MeSchema, body);
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Promise<Me> {
+    return this.request("POST", "/auth/password", MeSchema, { currentPassword, newPassword }, { timeoutMs: 15000 });
+  }
+
+  async mySessions(): Promise<AccountSession[]> {
+    return (await this.request("GET", "/auth/sessions", z.object({ sessions: z.array(AccountSessionSchema) }))).sessions;
+  }
+
+  async revokeMySession(id: string): Promise<void> {
+    await this.request("DELETE", `/auth/sessions/${encodeURIComponent(id)}`, null);
+  }
+
+  async users(): Promise<User[]> {
+    return (await this.request("GET", "/users", UsersSchema)).users;
+  }
+
+  createUser(body: { username: string; displayName: string; role: Role; email?: string; password?: string }): Promise<z.infer<typeof CreatedUserSchema>> {
+    return this.request("POST", "/users", CreatedUserSchema, body, { timeoutMs: 15000 });
+  }
+
+  async updateUser(id: string, body: { displayName?: string; email?: string | null; role?: Role; disabled?: boolean }): Promise<User> {
+    return (await this.request("PATCH", `/users/${encodeURIComponent(id)}`, UpdatedUserSchema, body)).user;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.request("DELETE", `/users/${encodeURIComponent(id)}`, null);
+  }
+
+  userResetCode(id: string): Promise<OneTimeCode> {
+    return this.request("POST", `/users/${encodeURIComponent(id)}/reset-code`, OneTimeCodeSchema, {});
+  }
+
+  invites(): Promise<z.infer<typeof InvitesSchema>> {
+    return this.request("GET", "/invites", InvitesSchema);
+  }
+
+  createInvite(role: Role, ttlHours: number): Promise<z.infer<typeof CreatedInviteSchema>> {
+    return this.request("POST", "/invites", CreatedInviteSchema, { role, ttlHours });
+  }
+
+  async revokeInvite(id: string): Promise<void> {
+    await this.request("DELETE", `/invites/${encodeURIComponent(id)}`, null);
+  }
+
+  roles(): Promise<Roles> {
+    return this.request("GET", "/roles", RolesSchema);
+  }
+
+  updateRole(role: Role, permissions: string[]): Promise<Roles> {
+    return this.request("PUT", `/roles/${encodeURIComponent(role)}`, RolesSchema, { permissions });
+  }
+
+  security(): Promise<z.infer<typeof SecuritySchema>> {
+    return this.request("GET", "/system/security", SecuritySchema);
+  }
+
+  updateSecurity(registration: Registration): Promise<z.infer<typeof SecuritySchema>> {
+    return this.request("PUT", "/system/security", SecuritySchema, { registration });
+  }
+
+  audit(params: { limit?: number; before?: number; action?: string; outcome?: string } = {}): Promise<z.infer<typeof AuditPageSchema>> {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") q.set(k, String(v));
+    const qs = q.toString();
+    return this.request("GET", `/audit${qs ? `?${qs}` : ""}`, AuditPageSchema);
+  }
+
+  // ------------------------------------------------------------------ SE7ENX Core: building model
+
+  building(): Promise<BuildingSnapshot> {
+    return this.request("GET", "/building", BuildingSnapshotSchema);
+  }
+
+  createBuildingEntity(collection: BuildingCollection, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/building/${collection}`, null, body);
+  }
+
+  updateBuildingEntity(collection: BuildingCollection, id: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("PATCH", `/building/${collection}/${encodeURIComponent(id)}`, null, body);
+  }
+
+  deleteBuildingEntity(collection: BuildingCollection, id: string, cascade: boolean): Promise<unknown> {
+    return this.request("DELETE", `/building/${collection}/${encodeURIComponent(id)}${cascade ? "?cascade=true" : ""}`, null);
+  }
+
+  importBuilding(tree: BuildingImportTree): Promise<BuildingSnapshot> {
+    return this.request("POST", "/building/import", BuildingSnapshotSchema, tree);
+  }
+
+  placeDevice(deviceId: string, roomId: string | null): Promise<HubDevice> {
+    return this.request("PUT", `/devices/${encodeURIComponent(deviceId)}/room`, HubDeviceSchema, { roomId });
+  }
+
   openEvents(handlers: EventStreamHandlers): EventStreamHandle {
     let closed = false;
     let attempt = 0;
@@ -399,10 +571,10 @@ export class BridgeClient {
       try {
         const init: RequestInit & { targetAddressSpace?: string } = {
           method: "GET",
-          headers: { Accept: "text/event-stream", Authorization: `Bearer ${this.token ?? ""}` },
+          headers: this.token ? { Accept: "text/event-stream", Authorization: `Bearer ${this.token}` } : { Accept: "text/event-stream" },
           signal: controller.signal,
           cache: "no-store",
-          credentials: "omit",
+          credentials: this.cookieAuth ? "same-origin" : "omit",
           mode: "cors",
         };
         if (this.targetAddressSpace) init.targetAddressSpace = this.targetAddressSpace;

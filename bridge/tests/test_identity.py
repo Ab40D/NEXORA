@@ -294,3 +294,15 @@ def test_cli_recovery_issues_a_single_use_reset_code(tmp_path: Path, capsys: pyt
         assert ledger[0]["source"] == "cli" and ledger[0]["actor"]["name"] == "host console"
     with pytest.raises(SystemExit):
         cmd_reset_password(settings, "nobody")
+
+
+def test_successful_sign_ins_are_not_rate_limited_but_failures_per_ip_are() -> None:
+    with TestClient(create_app(account_settings())) as c:
+        owner_api(c)
+        for _ in range(15):  # more than the per-IP failure budget, all successful
+            assert login(c, "amina", OWNER_PW).status_code == 200
+        names = ["ghost1", "ghost2", "ghost3"]  # spread over names so the per-name lockout doesn't kick in first
+        for i in range(10):
+            assert login(c, names[i % 3], "wrong passphrase entirely").status_code == 401
+        blocked = login(c, "amina", OWNER_PW)
+        assert blocked.status_code == 429 and blocked.json()["error"]["code"] == "RATE_LIMITED"

@@ -73,6 +73,10 @@ Security: [docs/SECURITY.md](docs/SECURITY.md).
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Developers | Current architecture, traced command lifecycle, data map, proposed target architecture |
 | [docs/SECURITY.md](docs/SECURITY.md) · [docs/API.md](docs/API.md) · [bridge/README.md](bridge/README.md) | Developers, installers | Security model, bridge API contract, bridge installation |
 | [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) | Reviewers | What was built and how it was verified |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Everyone | Building-OS roadmap M1–M8 with verified status |
+| [docs/RESEARCH_AND_DECISIONS.md](docs/RESEARCH_AND_DECISIONS.md) | Developers, reviewers | Sources (dated), competitor/standards/library assessments, decision log |
+| [docs/INNOVATION_BACKLOG.md](docs/INNOVATION_BACKLOG.md) | Product, developers | 15 scored ideas with prior-art notes |
+| [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) | Developers | What was done, decided and verified, by date |
 
 ## Privacy
 

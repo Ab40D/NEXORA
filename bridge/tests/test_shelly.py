@@ -318,7 +318,10 @@ def test_shelly_unreachable_device_goes_offline(tmp_path: Path) -> None:
         bc.c.patch("/api/v1/devices/lamp", json={"controlEnabled": True, "acknowledgeRealControl": True}, headers=bc.h)
         fakes.pop("192.168.1.80")  # the device disappears from the network
         r = bc.post("/devices/lamp/commands", {"command": "turn_on", "requestId": "l1"})
-        assert r.status_code == 503 and r.json()["error"]["code"] == "SHELLY_UNREACHABLE"
+        # Both answers are truthful 503s: the command itself failed to reach the device (SHELLY_UNREACHABLE), or the
+        # poll started by the PATCH above noticed the disappearance first (DEVICE_UNAVAILABLE). Which one wins is a race
+        # under CPU load; the HTTP-error mapping itself is asserted by the identify test.
+        assert r.status_code == 503 and r.json()["error"]["code"] in ("SHELLY_UNREACHABLE", "DEVICE_UNAVAILABLE")
         assert wait_for(lambda: bc.get("/devices/lamp").json()["connection"]["status"] == "offline", timeout=10)
         r = bc.post("/devices/lamp/commands", {"command": "turn_on", "requestId": "l2"})
         assert r.status_code == 503 and r.json()["error"]["code"] == "DEVICE_UNAVAILABLE"
