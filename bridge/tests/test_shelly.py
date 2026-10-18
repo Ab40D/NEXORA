@@ -107,6 +107,31 @@ def test_gen2_capabilities_follow_the_device(tmp_path: Path) -> None:
     assert caps["10.0.0.4"] == {"open_close", "stop"}  # not calibrated -> no positioning offered
 
 
+def test_gen3_2pm_switch_and_cover_profiles(tmp_path: Path) -> None:
+    """Shelly 2PM Gen3 (model S3SW-002P16EU): two metered relays in the switch profile, one cover in
+    the cover profile. Capabilities come from what the device reports, never from the model name."""
+    switch_mode = FakeShellyGen2(
+        model="S3SW-002P16EU", app="2PMG3", gen=3, device_id="shelly2pmg3-aabbccddeeff", switches=2, profile="switch"
+    )
+    cover_mode = FakeShellyGen2(
+        model="S3SW-002P16EU", app="2PMG3", gen=3, device_id="shelly2pmg3-aabbccddee00", covers=1, profile="cover"
+    )
+    uncalibrated = FakeShellyGen2(
+        model="S3SW-002P16EU", gen=3, device_id="shelly2pmg3-aabbccddee01", covers=1, pos_control=False, profile="cover"
+    )
+    a = adapter_for({"192.168.1.60": switch_mode, "192.168.1.61": cover_mode, "192.168.1.62": uncalibrated}, tmp_path)
+    sw = asyncio.run(a.identify("192.168.1.60"))
+    assert sw["gen"] == 3 and sw["model"] == "S3SW-002P16EU" and sw["profile"] == "switch"
+    assert [(c["component"], c["channel"]) for c in sw["channels"]] == [("switch", 0), ("switch", 1)]
+    assert all({"on_off", "power", "energy"} <= set(c["capabilities"]) for c in sw["channels"])
+    cv = asyncio.run(a.identify("192.168.1.61"))
+    assert cv["profile"] == "cover" and [c["component"] for c in cv["channels"]] == ["cover"]
+    assert set(cv["channels"][0]["capabilities"]) == {"open_close", "stop", "position", "power", "energy"}
+    assert cv["channels"][0]["suggestedType"] == "cover"
+    nocal = asyncio.run(a.identify("192.168.1.62"))
+    assert "position" not in nocal["channels"][0]["capabilities"]  # needs calibration on the device first
+
+
 def test_gen1_identify_relays_rollers_and_dimmers(tmp_path: Path) -> None:
     relay = FakeShellyGen1(type_="SHSW-25", relays=2, password=PASSWORD)
     roller = FakeShellyGen1(type_="SHSW-25", relays=2, rollers=1, mode="roller")

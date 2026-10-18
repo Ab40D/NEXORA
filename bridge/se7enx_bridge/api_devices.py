@@ -70,6 +70,7 @@ def build_device_router(
     limit: Callable[[SlidingWindowLimiter, str, str], None],
     cmd_limiter: SlidingWindowLimiter,
     global_cmd_limiter: SlidingWindowLimiter,
+    on_removed: Callable[[str], None] | None = None,
 ) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
     require: Callable[[str], Callable[..., Awaitable[Session]]] = auth.require
@@ -130,6 +131,8 @@ def build_device_router(
     ) -> Response:
         limit(config_limiter, session.id, "configuration changes")
         await registry.remove(device_id, session.client_name)
+        if on_removed is not None:
+            on_removed(device_id)
         record(session, request, "device.removed", device_id)
         return Response(status_code=204)
 

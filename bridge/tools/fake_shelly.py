@@ -57,8 +57,10 @@ class FakeShellyGen2:
         pos_control: bool = True,
         dim_methods: bool = True,
         extra_components: tuple[str, ...] = (),
+        profile: str | None = None,
     ) -> None:
         self.model, self.app, self.gen, self.device_id = model, app, gen, device_id
+        self.profile = profile  # multi-profile devices (e.g. 2PM: "switch" / "cover") report it in GetDeviceInfo
         self.password = password
         self.metering = metering
         self.dim_methods = dim_methods
@@ -110,6 +112,7 @@ class FakeShellyGen2:
             "app": self.app,
             "auth_en": self.password is not None,
             "auth_domain": self.device_id if self.password else None,
+            **({"profile": self.profile} if self.profile else {}),
         }
 
     def _challenge(self) -> Response:

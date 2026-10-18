@@ -1,0 +1,36 @@
+# SE7ENX: give the "se7enx-knx" group access to KNX USB interfaces, so the knxd container can open
+# them without running as root. Install on the HOST (Arch Linux: as root):
+#   groupadd --system se7enx-knx
+#   cp 70-se7enx-knx-usb.rules /etc/udev/rules.d/ && udevadm control --reload && udevadm trigger
+#   getent group se7enx-knx          # put the GID into .env as KNXD_GID
+# Then unplug and re-plug the interface (or reboot) and restart the knxd container.
+# IDs below are the USB-HID KNX interfaces listed by knxd 0.14.73 (60-knxd.rules). If yours is
+# missing, add a line with the IDs shown by `lsusb`.
+ACTION!="add", GOTO="se7enx_knx_end"
+SUBSYSTEM!="usb", GOTO="se7enx_knx_end"
+ENV{DEVTYPE}!="usb_device", GOTO="se7enx_knx_end"
+
+ATTR{idVendor}=="04cc", ATTR{idProduct}=="0301", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0111", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0112", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0102", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0103", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0104", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0121", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="0e77", ATTR{idProduct}=="0141", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0020", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0021", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0022", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0023", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0024", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0025", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="135e", ATTR{idProduct}=="0026", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="145c", ATTR{idProduct}=="1330", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="147b", ATTR{idProduct}=="5120", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="16d0", ATTR{idProduct}=="0490", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="16d0", ATTR{idProduct}=="0491", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="24d5", ATTR{idProduct}=="0106", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="28c2", ATTR{idProduct}=="0007", GROUP="se7enx-knx", MODE="0660"
+ATTR{idVendor}=="28c2", ATTR{idProduct}=="001a", GROUP="se7enx-knx", MODE="0660"
+
+LABEL="se7enx_knx_end"

@@ -202,4 +202,60 @@ def build_knx_interface_router(
         limit(usb_limiter, session.id, "USB scans")
         return scan_usb()
 
+    @r.get("/integrations/knx/chain")
+    async def knx_chain(session: Session = Depends(need["integration.view"])) -> dict[str, Any]:
+        """Step-by-step evidence for the path hub -> interface (knxd for USB) -> KNX bus.
+
+        Each step reports what was actually observed. A USB device that is merely plugged in, a host
+        that answers, or a connected tunnel does not prove bus communication: only telegrams from
+        bus devices (status/read responses) do.
+        """
+        limit(usb_limiter, session.id, "USB scans")
+        usb = scan_usb()
+        st = knx.status.to_dict()
+        gw = st.get("gateway") or {}
+        steps: list[dict[str, Any]] = [
+            {
+                "id": "usb",
+                "state": "ok" if usb["devices"] else ("na" if not usb["sysfsVisible"] else "missing"),
+                "detail": usb["message"],
+                "devices": usb["devices"],
+            }
+        ]
+        if knx.connected and not knx.is_routing:
+            ok, text = await knx.gateway_description()
+            name = gw.get("name") or ""
+            steps.append(
+                {"id": "interface", "state": "ok" if ok else "fail", "detail": text, "knxd": "knxd" in name.lower()}
+            )
+        elif knx.connected:
+            steps.append(
+                {
+                    "id": "interface",
+                    "state": "na",
+                    "detail": "Routing (multicast) has no single interface.",
+                    "knxd": False,
+                }
+            )
+        else:
+            steps.append({"id": "interface", "state": "pending", "detail": "Not connected.", "knxd": False})
+        steps.append(
+            {
+                "id": "tunnel",
+                "state": "ok" if knx.connected else ("fail" if st.get("state") == "error" else "pending"),
+                "detail": st.get("state"),
+                "localAddress": st.get("localAddress"),
+                "lastError": st.get("lastError"),
+            }
+        )
+        activity = knx.bus_activity
+        steps.append(
+            {
+                "id": "bus",
+                "state": "ok" if activity else ("pending" if knx.connected else "na"),
+                "detail": activity,
+            }
+        )
+        return {"steps": steps, "connection": st}
+
     return r

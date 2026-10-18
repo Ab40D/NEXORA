@@ -183,6 +183,9 @@ class KnxService:
         self._want_connected = False
         self._supervisor: asyncio.Task[None] | None = None
         self.values: dict[str, GaValue] = {}
+        # Last telegram sent by a device on the bus (not by the interface/knxd or by us): evidence that
+        # the bus behind the interface is really reachable. A connected tunnel alone does not prove it.
+        self.bus_activity: dict[str, str] | None = None
         self._value_listeners: list[Callable[[str, GaValue], None]] = []
         self._status_listeners: list[Callable[[KnxStatus], None]] = []
 
@@ -428,8 +431,11 @@ class KnxService:
         except Exception:  # pragma: no cover - undecodable payload
             return
         ga = str(telegram.destination_address)
-        gv = GaValue(payload=value, kind=kind, at=now_iso(), source=str(telegram.source_address))
+        src = str(telegram.source_address)
+        gv = GaValue(payload=value, kind=kind, at=now_iso(), source=src)
         self.values[ga] = gv
+        if src not in (self._status.local_address, self._status.gateway_ia, "0.0.0"):
+            self.bus_activity = {"source": src, "groupAddress": ga, "kind": kind, "at": gv.at}
         for fn in self._value_listeners:
             try:
                 fn(ga, gv)

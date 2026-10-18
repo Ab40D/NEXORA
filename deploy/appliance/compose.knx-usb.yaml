@@ -1,0 +1,65 @@
+# KNX USB interface through knxd (override file). SE7ENX's KNX library speaks KNXnet/IP only, so a
+# small knxd container drives the USB interface and offers a KNXnet/IP tunnelling server that the hub
+# connects to over a private Docker network. Nothing is exposed on your LAN.
+#
+#   1. Host (once): install deploy/knxd/70-se7enx-knx-usb.rules and create the se7enx-knx group
+#      (see the comments in that file); put its GID into .env as KNXD_GID.
+#   2. Choose FREE individual addresses on your KNX line: KNXD_ADDRESS (knxd) and KNXD_CLIENT_ADDRESSES.
+#   3. docker compose -f compose.yaml -f compose.knx-usb.yaml up -d --build
+#   4. In SE7ENX: Integrations -> KNX -> chain diagnostics, then commission each device.
+#
+# Re-plugging the USB interface changes its device node: run `docker compose restart knxd` afterwards.
+
+services:
+  knxd:
+    image: ${SE7ENX_KNXD_IMAGE:-se7enx-knxd:2.0.0}
+    build:
+      context: ../knxd
+    restart: unless-stopped
+    user: "10003:10003"
+    group_add:
+      - "${KNXD_GID:?Set KNXD_GID in .env to the GID of the se7enx-knx group (getent group se7enx-knx)}"
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      KNXD_DRIVER: ${KNXD_DRIVER:-usb:}
+      KNXD_ADDRESS: ${KNXD_ADDRESS:-0.0.1}
+      KNXD_CLIENT_ADDRESSES: ${KNXD_CLIENT_ADDRESSES:-0.0.2:8}
+      KNXD_SINGLE: ${KNXD_SINGLE:-true}
+      KNXD_LOG_LEVEL: ${KNXD_LOG_LEVEL:-4}
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      knx:
+        ipv4_address: 172.30.231.10
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  se7enx:
+    depends_on:
+      - knxd
+    environment:
+      SE7ENX_KNX_CONNECTION_TYPE: tunneling
+      SE7ENX_KNX_GATEWAY_IP: 172.30.231.10
+      SE7ENX_KNX_GATEWAY_PORT: "3671"
+      SE7ENX_KNX_AUTOCONNECT: "true"
+    networks:
+      default: {}
+      knx:
+        ipv4_address: 172.30.231.20
+
+networks:
+  knx:
+    internal: true # the knxd tunnelling server is reachable from the hub only
+    ipam:
+      config:
+        - subnet: 172.30.231.0/24

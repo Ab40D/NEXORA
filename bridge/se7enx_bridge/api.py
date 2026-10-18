@@ -28,6 +28,7 @@ from xknx.dpt import DPTArray, DPTBinary
 from . import API_VERSION, __version__
 from .api_auth import build_auth_router, identity_exception_handlers
 from .api_building import build_building_router, building_exception_handlers
+from .api_commissioning import build_commissioning_router
 from .api_devices import build_device_router
 from .api_knx import apply_stored_interface, build_knx_interface_router
 from .api_tls import build_tls_router, mount_setup_page
@@ -36,6 +37,7 @@ from .auth import Auth, client_ip
 from .config import Settings
 from .core.audit import AuditLog
 from .core.building import BuildingService
+from .core.commissioning import CommissioningService
 from .core.db import Database
 from .core.identity import IdentityService
 from .core.rbac import PERMISSIONS, RoleMatrix
@@ -305,6 +307,7 @@ class BridgeState:
         self.streams: dict[str, int] = {}
         self.auth = Auth(self.identity, lambda: self.roles, self.sessions, self.audit)
         self.building = BuildingService(self.store, self.registry)
+        self.commissioning = CommissioningService(self.db)
         knx.on_status(lambda st: self.broker.publish("knx.status", st.to_dict()))
         knx.on_value(lambda ga, gv: self.broker.publish("ga.value", {"ga": ga}))
 
@@ -895,7 +898,20 @@ def create_app(
         build_building_router(auth=auth, building=state.building, registry=state.registry, audit=state.audit)
     )
     app.include_router(
-        build_device_router(state.registry, auth, state.audit, limit, state.cmd_limiter, state.global_cmd_limiter)
+        build_device_router(
+            state.registry,
+            auth,
+            state.audit,
+            limit,
+            state.cmd_limiter,
+            state.global_cmd_limiter,
+            on_removed=state.commissioning.forget,  # evidence never outlives the device
+        )
+    )
+    app.include_router(
+        build_commissioning_router(
+            auth=auth, registry=state.registry, commissioning=state.commissioning, ledger=state.audit, limit=limit
+        )
     )
     app.include_router(build_knx_interface_router(settings, knx_service, state.registry, require, limit))
     app.include_router(build_assistant_router(interpreter, require, limit, stt))

@@ -86,6 +86,21 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX audit_action ON audit(action);
     CREATE INDEX audit_target ON audit(target_type, target_id);
     """,
+    # 2 — commissioning evidence (device verification)
+    """
+    CREATE TABLE commissioning (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        step TEXT NOT NULL,
+        ok INTEGER NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}',
+        actor_id TEXT,
+        actor_name TEXT,
+        ts REAL NOT NULL
+    );
+    CREATE INDEX commissioning_device ON commissioning(device_id, ts);
+    """,
 )
 
 

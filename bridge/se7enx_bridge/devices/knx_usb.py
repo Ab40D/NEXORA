@@ -8,8 +8,8 @@ therefore never reports a working USB connection. It reports:
 * the supported path: let knxd drive the USB interface (``-b usb:``) and expose KNXnet/IP, then
   configure SE7ENX for KNX/IP tunnelling to that host.
 
-Vendor/product IDs come from knxd's udev rules and published ``lsusb`` output. The list is not
-exhaustive, so product strings containing "KNX"/"EIB" are matched as well.
+Vendor/product IDs are the exact list from knxd 0.14.73's udev rules. The list is not exhaustive, so
+product strings containing "KNX"/"EIB" are matched as well.
 """
 
 from __future__ import annotations
@@ -18,30 +18,44 @@ import os
 from pathlib import Path
 from typing import Any
 
-# Vendor IDs owned by KNX interface manufacturers (whole vendor is a match).
-KNX_USB_VENDORS: dict[str, str] = {
-    "0e77": "Weinzierl Engineering (also OEM for Siemens, Hensel, Merlin Gerin)",
-    "135e": "Insta (Gira, JUNG, Berker, Feller)",
-    "147b": "ABB STOTZ-KONTAKT",
-    "0908": "Siemens",
-    "16de": "Schneider Electric",
-}
-# Specific vendor:product pairs listed in knxd's udev rules where the vendor ID is shared.
+# Exact vendor:product pairs of USB-HID KNX interfaces, from knxd 0.14.73's udev rules (60-knxd.rules).
 KNX_USB_PRODUCTS: dict[tuple[str, str], str] = {
-    ("145c", "1330"): "KNX USB interface (listed in knxd udev rules)",
-    ("145c", "1490"): "KNX USB interface (listed in knxd udev rules)",
-    ("16d0", "0490"): "KNX USB interface (listed in knxd udev rules)",
-    ("16d0", "0492"): "KNX USB interface (listed in knxd udev rules)",
-    ("04cc", "0301"): "KNX USB interface (listed in knxd udev rules)",
-    ("0681", "0014"): "KNX USB interface (listed in knxd udev rules)",
+    ("04cc", "0301"): "Schlaps & Partner EIB-USB Data Interface",
+    ("0e77", "0111"): "Siemens KNX/EIB-USB Interface (flush mounted)",
+    ("0e77", "0112"): "Siemens KNX/EIB-USB Interface (DIN rail)",
+    ("0e77", "0102"): "Weinzierl KNX-USB Data Interface (UP)",
+    ("0e77", "0103"): "Weinzierl KNX-USB Data Interface",
+    ("0e77", "0104"): "Weinzierl KNX-USB Data Interface (DIN rail)",
+    ("0e77", "0121"): "Weinzierl KNX-USB Data Interface (Hensel DIN rail)",
+    ("0e77", "0141"): "Weinzierl KNX-USB Data Interface (Merlin Gerin UP)",
+    ("135e", "0020"): "Insta KNX-USB Data Interface",
+    ("135e", "0021"): "Insta KNX-USB Data Interface (Berker)",
+    ("135e", "0022"): "Insta KNX-USB Data Interface (Gira)",
+    ("135e", "0023"): "Insta KNX-USB Data Interface (Jung)",
+    ("135e", "0024"): "Insta KNX-USB Data Interface (Merten)",
+    ("135e", "0025"): "Hager KNX-USB Data Interface",
+    ("135e", "0026"): "Insta KNX-USB Data Interface (Feller)",
+    ("145c", "1330"): "Busch-Jaeger KNX-USB Interface (flush mounted, type 6133)",
+    ("147b", "5120"): "ABB KNX-USB Interface (REG)",
+    ("16d0", "0490"): "Tapko UIM-KNX 42",
+    ("16d0", "0491"): "MDT SCN-USBR.01",
+    ("24d5", "0106"): "SATEL KNX-USB Interface",
+    ("28c2", "0007"): "Zublin KNX-USB Interface",
+    ("28c2", "001a"): "Vimar 01540.1",
+}
+# Vendor IDs used only by KNX interface makers in that list (other products from them are likely KNX too).
+KNX_USB_VENDORS: dict[str, str] = {
+    "0e77": "Weinzierl Engineering (OEM for Siemens, Hensel, Merlin Gerin)",
+    "135e": "Insta (Gira, JUNG, Berker, Merten, Hager, Feller)",
 }
 _KEYWORDS = ("knx", "eib")
 _MAX_DEVICES = 256
 
 GUIDANCE = (
     "SE7ENX cannot drive a KNX USB interface directly: its KNX library (xknx) supports KNXnet/IP only. "
-    "Run knxd on the host computer (it drives the USB interface with '-b usb:'), enable its KNXnet/IP "
-    "tunnelling server, then choose KNX/IP here and enter the host's IP address."
+    "Use the SE7ENX knxd container (deploy/appliance/compose.knx-usb.yaml): knxd drives the USB interface "
+    "and offers a KNXnet/IP tunnelling server on a private Docker network, which the hub connects to. "
+    "Without Docker, run knxd on the host with '-B single -b usb: -T -S' and choose KNX/IP tunnelling here."
 )
 
 
