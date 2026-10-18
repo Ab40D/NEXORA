@@ -30,6 +30,7 @@ from .api_auth import build_auth_router, identity_exception_handlers
 from .api_building import build_building_router, building_exception_handlers
 from .api_devices import build_device_router
 from .api_knx import apply_stored_interface, build_knx_interface_router
+from .api_tls import build_tls_router, mount_setup_page
 from .assistant import LlmInterpreter, build_assistant_router
 from .auth import Auth, client_ip
 from .config import Settings
@@ -433,7 +434,7 @@ def create_app(
     app.add_middleware(
         SecurityMiddleware,
         allowed_origins=settings.allowed_origins,
-        hsts=bool(settings.tls_cert),
+        hsts=settings.tls_mode == "files",  # no HSTS for the local CA (IP hosts, easy to switch off)
         docs=settings.enable_docs,
         host_policy=HostPolicy(settings.allowed_hosts) if settings.allowed_hosts is not None else None,
     )
@@ -886,6 +887,8 @@ def create_app(
     )
     app.include_router(build_knx_interface_router(settings, knx_service, state.registry, require, limit))
     app.include_router(build_assistant_router(interpreter, require, limit))
+    app.include_router(build_tls_router(settings))
+    mount_setup_page(app, settings)
 
     if settings.ui_dir:
         from .ui import mount_ui

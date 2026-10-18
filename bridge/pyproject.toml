@@ -16,6 +16,7 @@ dependencies = [
   "httpx2>=2.13,<3",  # Shelly local HTTP/RPC client (digest SHA-256)
   "websockets>=13",  # Home Assistant WebSocket client
   "argon2-cffi>=23.1,<26",  # Argon2id password hashing (OWASP-recommended), MIT
+  "cryptography>=43",  # local HTTPS CA (SE7ENX_TLS=local-ca); also used by xknx for KNX Secure
 ]
 
 [project.optional-dependencies]

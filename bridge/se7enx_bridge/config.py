@@ -58,6 +58,10 @@ class Settings:
     enable_docs: bool = False
     tls_cert: str | None = None
     tls_key: str | None = None
+    # "off" | "files" (SE7ENX_TLS_CERT/KEY) | "local-ca" (hub-generated private CA, see tls.py)
+    tls_mode: str = "off"
+    tls_hosts: tuple[str, ...] = ()  # extra names/IPs for the local-CA certificate (e.g. the host's LAN IP)
+    http_redirect_port: int | None = None  # optional plain-HTTP port: CA download page + redirect to HTTPS
     trust_proxy: bool = False
     command_limit: int = 6
     command_window_s: float = 10.0
@@ -75,6 +79,11 @@ class Settings:
     llm_url: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = field(default=None, repr=False)
+    # Optional local speech-to-text (OpenAI-compatible /v1/audio/transcriptions). Disabled by default.
+    stt_url: str | None = None
+    stt_model: str | None = None
+    stt_api_key: str | None = field(default=None, repr=False)
+    stt_max_seconds: int = 15
     shelly_poll_s: int = 5
     device_min_interval_ms: int = 300
     # --- accounts (SE7ENX Core identity) ---
@@ -96,7 +105,9 @@ class Settings:
         return {
             "host": self.host,
             "port": self.port,
-            "tls": bool(self.tls_cert),
+            "tls": self.tls_mode,
+            "tls_hosts": list(self.tls_hosts),
+            "http_redirect_port": self.http_redirect_port,
             "allowed_origins": list(self.allowed_origins),
             "allowed_group_addresses": list(self.allowed_group_addresses) or "(none — all commands denied)",
             "connection_type": self.connection_type,
@@ -121,6 +132,9 @@ class Settings:
             "llm_url": self.llm_url,
             "llm_model": self.llm_model,
             "llm_api_key": "***" if self.llm_api_key else None,
+            "stt_url": self.stt_url,
+            "stt_model": self.stt_model,
+            "stt_api_key": "***" if self.stt_api_key else None,
             "shelly_poll_s": self.shelly_poll_s,
             "password_min_length": self.password_min_length,
             "session_idle_min": self.session_idle_s // 60,
@@ -287,6 +301,29 @@ class Settings:
             if path and not Path(path).is_file():
                 raise ConfigError(f"{name} does not point to a file")
         kwargs["tls_cert"], kwargs["tls_key"] = cert, key
+        mode = (get("TLS") or ("files" if cert else "off")).strip().lower()
+        if mode in ("0", "false", "no"):
+            mode = "off"
+        if mode not in ("off", "files", "local-ca"):
+            raise ConfigError("SE7ENX_TLS must be off, files or local-ca")
+        if mode == "files" and not cert:
+            raise ConfigError("SE7ENX_TLS=files requires SE7ENX_TLS_CERT and SE7ENX_TLS_KEY")
+        if mode == "local-ca" and cert:
+            raise ConfigError("Use either SE7ENX_TLS=local-ca or SE7ENX_TLS_CERT/KEY, not both")
+        kwargs["tls_mode"] = mode
+        tls_hosts = as_list("TLS_HOSTS") or []
+        if tls_hosts:
+            from .tls import TlsError, normalize_hosts
+
+            try:
+                kwargs["tls_hosts"] = normalize_hosts(tls_hosts)
+            except TlsError as err:
+                raise ConfigError(f"SE7ENX_TLS_HOSTS: {err}") from err
+        redirect = get("HTTP_REDIRECT_PORT")
+        if redirect:
+            if mode == "off":
+                raise ConfigError("SE7ENX_HTTP_REDIRECT_PORT needs HTTPS (SE7ENX_TLS=local-ca or files)")
+            kwargs["http_redirect_port"] = as_int("HTTP_REDIRECT_PORT", 0, 1, 65535)
         kwargs["trust_proxy"] = as_bool("TRUST_PROXY", d.trust_proxy)
         kwargs["command_limit"] = as_int("COMMAND_LIMIT", d.command_limit, 1, 100)
         kwargs["command_window_s"] = float(as_int("COMMAND_WINDOW_S", int(d.command_window_s), 1, 3600))
@@ -363,6 +400,28 @@ class Settings:
         elif llm_model or key:
             raise ConfigError("SE7ENX_LLM_MODEL / SE7ENX_LLM_API_KEY require SE7ENX_LLM_URL")
 
+        stt_url, stt_key, stt_key_file = get("STT_URL"), get("STT_API_KEY"), get("STT_API_KEY_FILE")
+        if stt_key and stt_key_file:
+            raise ConfigError("Set SE7ENX_STT_API_KEY or SE7ENX_STT_API_KEY_FILE, not both")
+        if stt_key_file:
+            try:
+                stt_key = Path(stt_key_file).read_text(encoding="utf-8").strip()
+            except OSError as err:
+                raise ConfigError(f"SE7ENX_STT_API_KEY_FILE cannot be read: {err.strerror}") from err
+        if stt_url:
+            try:
+                kwargs["stt_url"] = normalize_llm_url(stt_url)
+            except ValueError as err:
+                raise ConfigError(f"SE7ENX_STT_URL: {err}") from err
+            model = get("STT_MODEL") or "whisper-1"
+            if len(model) > 128:
+                raise ConfigError("SE7ENX_STT_MODEL is too long")
+            kwargs["stt_model"] = model
+            kwargs["stt_api_key"] = stt_key or None
+            kwargs["stt_max_seconds"] = as_int("STT_MAX_SECONDS", d.stt_max_seconds, 3, 60)
+        elif get("STT_MODEL") or stt_key:
+            raise ConfigError("SE7ENX_STT_MODEL / SE7ENX_STT_API_KEY require SE7ENX_STT_URL")
+
         return cls(**kwargs)  # type: ignore[arg-type]
 
 
@@ -383,9 +442,14 @@ def normalize_llm_url(value: str) -> str:
             ip = ipaddress.ip_address(parts.hostname)
         except ValueError:
             ip = None
-        local_name = parts.hostname == "localhost" or parts.hostname.endswith((".local", ".lan", ".home.arpa"))
+        # Single-label names (e.g. a Docker Compose service such as "speech" or "ollama") are local.
+        local_name = (
+            parts.hostname == "localhost"
+            or parts.hostname.endswith((".local", ".lan", ".home.arpa", ".internal"))
+            or (ip is None and "." not in parts.hostname)
+        )
         if not (local_name or (ip is not None and (ip.is_private or ip.is_loopback))):
-            raise ValueError("use https:// for an LLM endpoint outside the local network")
+            raise ValueError("use https:// for an endpoint outside the local network")
     return value.strip().rstrip("/")
 
 

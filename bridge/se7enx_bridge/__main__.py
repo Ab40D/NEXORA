@@ -7,6 +7,8 @@ python -m se7enx_bridge users        list SE7ENX accounts (no secrets)
 python -m se7enx_bridge reset-password <username>
                                      print a one-time password reset code (account recovery for whoever
                                      has access to this machine; valid 30 minutes, single use)
+python -m se7enx_bridge tls          create/renew the local HTTPS certificate (SE7ENX_TLS=local-ca) and
+                                     print the CA fingerprint and the addresses it covers
 """
 
 from __future__ import annotations
@@ -36,6 +38,66 @@ def _load() -> Settings:
         sys.exit(2)
 
 
+def _local_tls(settings: Settings) -> tuple[Settings, object | None]:
+    """Prepare the local-CA certificate when SE7ENX_TLS=local-ca (returns updated settings)."""
+    if settings.tls_mode != "local-ca":
+        return settings, None
+    from .tls import TlsError, detect_hosts, ensure_local_tls
+
+    if not settings.data_dir:
+        print(
+            "Configuration error: SE7ENX_TLS=local-ca requires SE7ENX_DATA_DIR (the CA must persist).", file=sys.stderr
+        )
+        sys.exit(2)
+    try:
+        files = ensure_local_tls(settings.data_dir, [*settings.tls_hosts, *detect_hosts()])
+    except TlsError as err:
+        print(f"TLS error: {err}", file=sys.stderr)
+        sys.exit(2)
+    return settings.with_overrides(tls_cert=str(files.cert), tls_key=str(files.key)), files
+
+
+def cmd_tls(settings: Settings) -> None:
+    if settings.tls_mode != "local-ca":
+        print(
+            "SE7ENX_TLS is not 'local-ca'. Set SE7ENX_TLS=local-ca (and SE7ENX_TLS_HOSTS=<LAN IP>) first.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    _, files = _local_tls(settings)
+    from .tls import TlsFiles
+
+    assert isinstance(files, TlsFiles)
+    print(f"CA certificate:    {files.ca}   (install this on your devices)")
+    print(f"CA fingerprint:    SHA-256 {files.fingerprint_sha256}")
+    print(f"Server certificate valid until {files.not_after:%Y-%m-%d} for: {', '.join(files.hosts)}")
+
+
+def _serve_with_redirect(main: object, redirect: object) -> None:
+    import contextlib
+
+    import uvicorn
+
+    assert isinstance(main, uvicorn.Server) and isinstance(redirect, uvicorn.Server)
+
+    class _NoSignals(uvicorn.Server):
+        @contextlib.contextmanager
+        def capture_signals(self):  # type: ignore[no-untyped-def,override]
+            yield  # the main server owns SIGINT/SIGTERM
+
+    redirect.__class__ = _NoSignals
+
+    async def run() -> None:
+        task = asyncio.create_task(redirect.serve())
+        try:
+            await main.serve()
+        finally:
+            redirect.should_exit = True
+            await task
+
+    asyncio.run(run())
+
+
 def cmd_serve(settings: Settings) -> None:
     import uvicorn
 
@@ -43,6 +105,18 @@ def cmd_serve(settings: Settings) -> None:
 
     _setup_logging(settings.log_level)
     log = logging.getLogger("se7enx")
+    settings, tls_files = _local_tls(settings)
+    if tls_files is not None:
+        from .tls import TlsFiles
+
+        assert isinstance(tls_files, TlsFiles)
+        log.info("HTTPS with the SE7ENX local CA, certificate covers: %s", ", ".join(tls_files.hosts))
+        log.info("CA fingerprint (SHA-256): %s", tls_files.fingerprint_sha256)
+        log.info(
+            "Install the CA on each device from https://<hub>:%s/setup/ca%s",
+            settings.port,
+            f" or http://<hub>:{settings.http_redirect_port}/" if settings.http_redirect_port else "",
+        )
     log.info(
         "SE7ENX Bridge %s starting on %s://%s:%s",
         __version__,
@@ -55,7 +129,7 @@ def cmd_serve(settings: Settings) -> None:
             "Listening on %s — the API is reachable from your network. Sign-in (or the setup code before the first account) is required; never expose this port to the internet.",
             settings.host,
         )
-    uvicorn.run(
+    config = uvicorn.Config(
         create_app(settings),
         host=settings.host,
         port=settings.port,
@@ -68,6 +142,24 @@ def cmd_serve(settings: Settings) -> None:
         server_header=False,
         timeout_graceful_shutdown=5,
     )
+    server = uvicorn.Server(config)
+    if settings.http_redirect_port:
+        from .api_tls import create_redirect_app
+
+        redirect = uvicorn.Server(
+            uvicorn.Config(
+                create_redirect_app(settings),
+                host=settings.host,
+                port=settings.http_redirect_port,
+                loop="asyncio",
+                log_level="warning",
+                server_header=False,
+            )
+        )
+        log.info("Plain-HTTP helper on port %s (CA download page, redirects to HTTPS)", settings.http_redirect_port)
+        _serve_with_redirect(server, redirect)
+    else:
+        server.run()
 
 
 def cmd_scan(settings: Settings) -> None:
@@ -156,7 +248,10 @@ def main() -> None:
         prog="se7enx-bridge", description="SE7ENX Bridge — KNX gateway for the SE7ENX Smart Light web app"
     )
     parser.add_argument(
-        "command", nargs="?", default="serve", choices=["serve", "scan", "check-config", "users", "reset-password"]
+        "command",
+        nargs="?",
+        default="serve",
+        choices=["serve", "scan", "check-config", "users", "reset-password", "tls"],
     )
     parser.add_argument("target", nargs="?", help="username (for reset-password)")
     parser.add_argument("--version", action="version", version=f"se7enx-bridge {__version__}")
@@ -168,6 +263,8 @@ def main() -> None:
         print(json.dumps(settings.describe(), indent=2))
     elif args.command == "users":
         cmd_users(settings)
+    elif args.command == "tls":
+        cmd_tls(settings)
     elif args.command == "reset-password":
         cmd_reset_password(settings, args.target)
     else:
