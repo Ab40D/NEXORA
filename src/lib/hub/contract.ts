@@ -257,3 +257,49 @@ export const AssistantInterpretSchema = z.object({
   model: z.string().nullable(),
 });
 export type AssistantInterpretation = z.infer<typeof AssistantInterpretSchema>;
+
+// ---------------------------------------------------------------- commissioning (hub >= 2.0)
+
+export const VERIFICATION_LEVELS = ["simulated", "configured", "connected", "verified"] as const;
+export type VerificationLevel = (typeof VERIFICATION_LEVELS)[number];
+
+export const EvidenceSchema = z.object({
+  id: z.number().int(),
+  step: z.enum(["read", "switch", "observe", "reset"]),
+  ok: z.boolean(),
+  detail: z.record(z.string(), z.unknown()),
+  actor: z.string().nullable(),
+  at: z.string(),
+  fingerprint: z.string(),
+});
+export type Evidence = z.infer<typeof EvidenceSchema>;
+
+export const AssessmentSchema = z.object({
+  level: z.enum(VERIFICATION_LEVELS),
+  fingerprint: z.string(),
+  verifiedAt: z.string().nullable(),
+  verifiedBy: z.string().nullable(),
+  lastFailure: EvidenceSchema.nullable(),
+  history: z.array(EvidenceSchema),
+});
+export type Assessment = z.infer<typeof AssessmentSchema>;
+
+export const CommissioningStepResultSchema = z.object({ evidence: EvidenceSchema, assessment: AssessmentSchema });
+export type CommissioningStepResult = z.infer<typeof CommissioningStepResultSchema>;
+
+export const CommissioningLevelsSchema = z.object({
+  devices: z.record(z.string(), z.object({ level: z.enum(VERIFICATION_LEVELS), verifiedAt: z.string().nullable() })),
+});
+
+export const KnxChainSchema = z.object({
+  steps: z.array(
+    z
+      .object({
+        id: z.enum(["usb", "interface", "tunnel", "bus"]),
+        state: z.enum(["ok", "fail", "pending", "missing", "na"]),
+      })
+      .passthrough(),
+  ),
+  connection: z.record(z.string(), z.unknown()),
+});
+export type KnxChain = z.infer<typeof KnxChainSchema>;

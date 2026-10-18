@@ -9,10 +9,12 @@ import { useNow } from "@/lib/device";
 import type { IntegrationStatus } from "@/lib/hub/contract";
 import { relativeTime } from "@/lib/hub/format";
 import { useAuth } from "@/lib/core/auth-store";
+import { useCommissioning } from "@/lib/hub/commissioning-store";
 import { APPLIANCE, hubClient, useHub } from "@/lib/hub/hub-store";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { useUi } from "@/lib/state/ui-store";
 import { AddDeviceDialog } from "./add-device-dialog";
+import { KnxChainCard } from "./commissioning";
 import { DeviceCard } from "./device-card";
 
 const STATE_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
@@ -88,6 +90,10 @@ export function DevicesPanel() {
   useEffect(() => {
     if (status === "idle") void connect();
   }, [status, connect]);
+  // verification levels follow device changes (state/config events update the device map)
+  useEffect(() => {
+    if (status === "ready") void useCommissioning.getState().refresh();
+  }, [status, devices]);
 
   const list = useMemo(() => order.map((id) => devices[id]).filter((d) => d && !d.hidden), [order, devices]);
   const realCount = list.filter((d) => d && !d.simulated).length;
@@ -178,6 +184,7 @@ export function DevicesPanel() {
       ) : (
         <div className="grid gap-3">{list.map((d) => (d ? <DeviceCard key={d.id} device={d} now={now} /> : null))}</div>
       )}
+      {integrations.some((i) => i.name === "knx") ? <KnxChainCard /> : null}
       <AddDeviceDialog open={adding} onOpenChange={setAdding} />
     </div>
   );

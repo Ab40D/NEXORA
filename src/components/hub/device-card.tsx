@@ -1,13 +1,15 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Lightbulb, Minus, Plus, Power, ShieldAlert, Square, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardCheck, Lightbulb, Minus, Plus, Power, ShieldAlert, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { CommissioningDialog, VerificationBadge } from "@/components/hub/commissioning";
 import { Button } from "@/components/ui/button";
 import { CommitSlider } from "@/components/ui/commit-slider";
 import { Badge, Callout, Checkbox } from "@/components/ui/primitives";
 import type { HubCommand, HubDevice } from "@/lib/hub/contract";
 import { errorCategory } from "@/lib/experience/errors";
 import { describeReported, describeRequested, relativeTime } from "@/lib/hub/format";
+import { useCommissioning } from "@/lib/hub/commissioning-store";
 import { useHub } from "@/lib/hub/hub-store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -25,6 +27,8 @@ export function DeviceCard({ device, now }: { device: HubDevice; now: number }) 
   const [confirming, setConfirming] = useState(false);
   const [ack, setAck] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [commissioning, setCommissioning] = useState(false);
+  const level = useCommissioning((s) => s.levels[device.id]?.level);
 
   const has = (c: HubCommand) => device.commands.includes(c);
   const rep = device.state.reported;
@@ -61,6 +65,7 @@ export function DeviceCard({ device, now }: { device: HubDevice; now: number }) 
           <Badge tone={CONNECTION_TONE[device.connection.status]} dot>
             {t(`hub.connection.${device.connection.status}`)}
           </Badge>
+          <VerificationBadge level={level} />
         </div>
       </header>
 
@@ -203,6 +208,9 @@ export function DeviceCard({ device, now }: { device: HubDevice; now: number }) 
       {actionError ? <p className="mt-2 text-xs text-danger">{actionError}</p> : null}
 
       <footer className="mt-3 flex flex-wrap items-center gap-2 border-t border-ink-700/70 pt-3">
+        <Button variant="ghost" size="sm" onClick={() => setCommissioning(true)} data-testid={`commission-${device.id}`}>
+          <ClipboardCheck className="h-3.5 w-3.5" aria-hidden /> {t("commission.open")}
+        </Button>
         {real && device.controlEnabled ? (
           <Button variant="ghost" size="sm" onClick={() => guarded(() => patch(device.id, { controlEnabled: false }))}>
             <Lightbulb className="h-3.5 w-3.5" aria-hidden /> {t("hub.card.disable")}
@@ -219,6 +227,7 @@ export function DeviceCard({ device, now }: { device: HubDevice; now: number }) 
         </Button>
         {device.credentialsStored ? <span className="text-[11px] text-ink-400">{t("hub.card.credentials")}</span> : null}
       </footer>
+      {commissioning ? <CommissioningDialog device={device} open={commissioning} onOpenChange={setCommissioning} /> : null}
     </article>
   );
 }

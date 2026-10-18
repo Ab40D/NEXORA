@@ -5,6 +5,10 @@ import {
   AssistantInfoSchema,
   AssistantInterpretSchema,
   TranscriptionSchema,
+  AssessmentSchema,
+  CommissioningLevelsSchema,
+  CommissioningStepResultSchema,
+  KnxChainSchema,
   DeviceListSchema,
   HaConfigSchema,
   HaEntitiesSchema,
@@ -19,6 +23,10 @@ import {
   type AddDeviceBody,
   type AssistantInfo,
   type Transcription,
+  type Assessment,
+  type CommissioningStepResult,
+  type KnxChain,
+  type VerificationLevel,
   type AssistantInterpretation,
   type DevicePatchBody,
   type HaConfig,
@@ -409,6 +417,27 @@ export class BridgeClient {
       timeoutMs: 60000,
       raw: { body: audio, contentType },
     });
+  }
+
+  // ---- commissioning / verification (hub >= 2.0) ----
+
+  commissioningLevels(): Promise<Record<string, { level: VerificationLevel; verifiedAt: string | null }>> {
+    return this.request("GET", "/commissioning", CommissioningLevelsSchema).then((r) => r.devices);
+  }
+
+  commissioning(id: string): Promise<Assessment> {
+    return this.request("GET", `/devices/${encodeURIComponent(id)}/commissioning`, AssessmentSchema);
+  }
+
+  commissioningStep(
+    id: string,
+    body: { step: "read" | "switch" | "observe" | "reset"; requestId: string; value?: "on" | "off"; observed?: boolean; confirm?: boolean },
+  ): Promise<CommissioningStepResult> {
+    return this.request("POST", `/devices/${encodeURIComponent(id)}/commissioning`, CommissioningStepResultSchema, body, { timeoutMs: 20000 });
+  }
+
+  knxChain(): Promise<KnxChain> {
+    return this.request("GET", "/integrations/knx/chain", KnxChainSchema, undefined, { timeoutMs: 15000 });
   }
 
   exportConfig(): Promise<unknown> {

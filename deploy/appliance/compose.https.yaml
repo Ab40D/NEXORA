@@ -1,0 +1,19 @@
+# HTTPS on your LAN with the SE7ENX local certificate authority (override file).
+# Browsers only allow the camera and microphone on HTTPS (or localhost), so phones and other
+# computers need this for gestures and voice. No public service or internet access is involved.
+#
+#   1. In .env: SE7ENX_TLS_HOSTS=<this computer's LAN IP>[,<host name>]
+#   2. docker compose -f compose.yaml -f compose.https.yaml up -d
+#   3. On each device, open http://<LAN IP>:8780/ (or https://<LAN IP>:8787/setup/ca), install the
+#      SE7ENX CA certificate once and compare its fingerprint with `docker compose logs se7enx`.
+#   4. Open https://<LAN IP>:8787/
+
+services:
+  se7enx:
+    environment:
+      SE7ENX_TLS: local-ca
+      SE7ENX_TLS_HOSTS: ${SE7ENX_TLS_HOSTS:?Set SE7ENX_TLS_HOSTS in .env to this computer's LAN IP address}
+      SE7ENX_HTTP_REDIRECT_PORT: "8780"
+    ports:
+      # plain-HTTP helper: CA download page and redirect to HTTPS (no API is served over HTTP)
+      - "${SE7ENX_BIND_ADDRESS:-0.0.0.0}:${SE7ENX_REDIRECT_PORT:-8780}:8780"

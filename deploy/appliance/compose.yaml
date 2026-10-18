@@ -13,12 +13,12 @@ name: se7enx
 
 services:
   se7enx:
-    image: ${SE7ENX_IMAGE:-se7enx:1.1.0}
+    image: ${SE7ENX_IMAGE:-se7enx:2.0.0}
     build:
       context: ../..
       dockerfile: Dockerfile
       args:
-        SE7ENX_VERSION: ${SE7ENX_VERSION:-1.1.0}
+        SE7ENX_VERSION: ${SE7ENX_VERSION:-2.0.0}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -29,7 +29,8 @@ services:
       - "${SE7ENX_BIND_ADDRESS:-0.0.0.0}:${SE7ENX_HTTP_PORT:-8787}:8787"
     volumes:
       - se7enx-data:/data
-      # Optional TLS certificate (set SE7ENX_TLS_CERT=/certs/cert.pem, SE7ENX_TLS_KEY=/certs/key.pem):
+      # HTTPS on the LAN: use compose.https.yaml (SE7ENX local CA), or your own certificate
+      # (set SE7ENX_TLS_CERT=/certs/cert.pem, SE7ENX_TLS_KEY=/certs/key.pem):
       # - ./certs:/certs:ro
     # Optional: Home Assistant token as a Docker secret (set SE7ENX_HA_TOKEN_FILE=/run/secrets/ha_token)
     # secrets:
@@ -48,8 +49,36 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Optional local speech-to-text for voice commands (Firefox, Chromium without Google keys, privacy).
+  #   docker compose --profile speech up -d --build     and set SE7ENX_STT_URL=http://speech:8000/v1 in .env
+  # The Whisper model is downloaded on the first start (or mount it and set SE7ENX_SPEECH_OFFLINE=true).
+  speech:
+    profiles: ["speech"]
+    image: ${SE7ENX_SPEECH_IMAGE:-se7enx-speech:2.0.0}
+    build:
+      context: ../../speech
+    restart: unless-stopped
+    environment:
+      SE7ENX_SPEECH_MODEL: ${SE7ENX_SPEECH_MODEL:-base}
+      SE7ENX_SPEECH_OFFLINE: ${SE7ENX_SPEECH_OFFLINE:-false}
+    volumes:
+      - se7enx-speech-models:/models
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
 volumes:
   se7enx-data:
+  se7enx-speech-models:
 
 # secrets:
 #   ha_token:

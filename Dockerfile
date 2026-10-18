@@ -3,7 +3,7 @@
 # SE7ENX appliance image: the local hub (Python: FastAPI + xknx) serving the web UI on the same
 # origin. One container, one port, non-root, works with a read-only root filesystem.
 #
-#   docker build -t se7enx:1.1.0 --build-arg SE7ENX_VERSION=1.1.0 .
+#   docker build -t se7enx:2.0.0 --build-arg SE7ENX_VERSION=2.0.0 .
 #   docker compose -f deploy/appliance/compose.yaml up -d      (recommended)
 #
 # Node is only used at build time to produce the static UI (SE7ENX_BUILD_TARGET=appliance).
@@ -67,6 +67,6 @@ VOLUME ["/data"]
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --start-interval=2s --retries=3 \
-  CMD python -c "import os,ssl,urllib.request as u; s='https' if os.environ.get('SE7ENX_TLS_CERT') else 'http'; u.urlopen(s+'://127.0.0.1:'+os.environ.get('SE7ENX_PORT','8787')+'/api/v1/health', timeout=4, context=ssl._create_unverified_context())" || exit 1
+  CMD python -c "import os,ssl,urllib.request as u; tls=os.environ.get('SE7ENX_TLS_CERT') or os.environ.get('SE7ENX_TLS','off') in ('local-ca','files'); u.urlopen(('https' if tls else 'http')+'://127.0.0.1:'+os.environ.get('SE7ENX_PORT','8787')+'/api/v1/health', timeout=4, context=ssl._create_unverified_context())" || exit 1
 
 CMD ["se7enx-bridge"]
